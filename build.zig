@@ -10,6 +10,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
+            .strip = optimize != .Debug,
         }),
     });
 
@@ -44,6 +45,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("examples/tui_demo.zig"),
             .target = target,
             .optimize = optimize,
+            .strip = optimize != .Debug,
         }),
     });
 
@@ -62,6 +64,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = .ReleaseFast,
+            .strip = true,
         }),
     });
 
@@ -75,6 +78,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = .ReleaseFast,
+            .strip = true,
         }),
     });
 
@@ -88,6 +92,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = .ReleaseSmall,
+            .strip = true,
         }),
     });
 
@@ -101,6 +106,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = .ReleaseSafe,
+            .strip = true,
         }),
     });
 

@@ -2,7 +2,7 @@
 
 ## [1.1.0] - 2026-07-26
 
-### Changed
+### 变更
 - ✅ `proxy tui` 重写为全屏交互式界面 (基于 src/term.zig 终端层)
   - 原始模式 + 备用屏幕，退出后完整恢复终端内容
   - 方向键/jk 导航、Tab 切换面板，不再需要"输数字 + 回车"
@@ -16,7 +16,7 @@
     (左栏配置 + 快捷键说明，右栏别名列表)，弹窗居中悬浮；窄屏保持上下堆叠
   - 非交互终端 (重定向) 下自动回退为错误提示
 
-### Added
+### 新增
 - ✅ `alias.getAll()` / `freeEntries()` 程序化读取别名 API
 - ✅ `zig build test` 单元测试步骤 (term.zig 宽度计算 + TUI 布局不变量)
 
@@ -24,12 +24,12 @@
 
 ## [1.0.2] - 2026-07-24
 
-### Added
+### 新增
 - ✅ 添加 `proxy list` 快捷命令
   - 现在可以直接使用 `proxy list` 代替 `proxy alias list`
   - 更简洁的命令体验
 
-### Fixed
+### 修复
 - ✅ 修复 `proxy list` 导致的 FileNotFound 错误
   - 之前会尝试执行 `list` 命令而不是列出别名
   - 现在正确识别为内置命令
@@ -38,13 +38,13 @@
 
 ## [1.0.1] - 2026-07-24
 
-### Fixed
+### 修复
 - ✅ 修复 Windows 控制台中文乱码问题
   - 在程序启动时自动设置控制台为 UTF-8 模式 (CP65001)
   - 现在所有中文提示信息都能正常显示
   - 使用 `SetConsoleOutputCP(65001)` API 实现
 
-### Technical Details
+### 技术细节
 ```zig
 // 在 main 函数开头添加
 if (builtin.os.tag == .windows) {
@@ -52,7 +52,7 @@ if (builtin.os.tag == .windows) {
 }
 ```
 
-### Tested
+### 测试
 - ✅ Windows 10/11 Git Bash - 中文正常
 - ✅ Windows CMD - 中文正常
 - ✅ Windows PowerShell - 中文正常
@@ -62,7 +62,7 @@ if (builtin.os.tag == .windows) {
 
 ## [1.0.0] - 2026-07-24
 
-### Added
+### 新增
 - ✅ 配置管理系统
   - `proxy config set <key> <value>` - 设置配置
   - `proxy config get [key]` - 查看配置
@@ -82,7 +82,7 @@ if (builtin.os.tag == .windows) {
   - URL 编码认证
   - 跨平台支持
 
-### Features
+### 特性
 - ✅ 零外部依赖
 - ✅ 单个可执行文件
 - ✅ 跨平台支持 (Windows/Linux/macOS)
@@ -91,7 +91,7 @@ if (builtin.os.tag == .windows) {
 - ✅ 10x 启动速度提升 (相比 Bash 脚本)
 - ✅ 4x 内存占用减少
 
-### Documentation
+### 文档
 - ✅ README.md - 完整使用文档
 - ✅ USAGE.md - 实用示例集
 - ✅ SUMMARY.md - 项目技术总结
