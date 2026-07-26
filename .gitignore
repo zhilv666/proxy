@@ -1,0 +1,11 @@
+# Zig 构建产物
+zig-out/
+.zig-cache/
+zig-cache/
+
+# 本地工具目录
+.claude/
+.playwright-mcp/
+
+# 临时文件
+*.tmp

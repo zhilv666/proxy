@@ -1,0 +1,101 @@
+# 推送 v* tag 时: 自动生成 CHANGELOG.md 并回写主分支、
+# 交叉编译五个平台的二进制并打包、创建 GitHub Release。
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  ZIG_VERSION: 0.15.2
+
+jobs:
+  changelog:
+    name: 整理更新日志
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: 生成并回写 CHANGELOG.md
+        run: |
+          bash scripts/gen-changelog.sh "${GITHUB_REF_NAME}"
+          if ! git diff --quiet CHANGELOG.md; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add CHANGELOG.md
+            git commit -m "docs: 更新 ${GITHUB_REF_NAME} 更新日志"
+            git push origin "HEAD:${{ github.event.repository.default_branch }}"
+          fi
+
+      - name: 生成 Release Notes
+        run: bash scripts/gen-changelog.sh "${GITHUB_REF_NAME}" --notes-only > release-notes.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: release-notes.md
+
+  build:
+    name: 打包 ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-windows
+          - x86_64-linux
+          - aarch64-linux
+          - x86_64-macos
+          - aarch64-macos
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: 单元测试
+        if: matrix.target == 'x86_64-linux'
+        run: zig build test
+
+      - name: 交叉编译
+        run: zig build -Dtarget=${{ matrix.target }} -Doptimize=ReleaseFast
+
+      - name: 打包
+        run: |
+          NAME="proxy-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir -p dist
+          case "${{ matrix.target }}" in
+            *windows*)
+              (cd zig-out/bin && zip "../../dist/${NAME}.zip" proxy.exe)
+              ;;
+            *)
+              tar -czf "dist/${NAME}.tar.gz" -C zig-out/bin proxy
+              ;;
+          esac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.target }}
+          path: dist/*
+
+  release:
+    name: 发布 Release
+    needs: [changelog, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: artifacts/release-notes/release-notes.md
+          files: artifacts/bin-*/*
