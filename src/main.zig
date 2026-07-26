@@ -140,7 +140,7 @@ fn printConfigHelp() void {
         \\配置项:
         \\  host                代理主机 (默认: 127.0.0.1)
         \\  port                代理端口 (默认: 7890)
-        \\  protocol            代理协议 (默认: http)
+        \\  protocol            代理协议 http/https/socks5/socks4 (默认: http)
         \\  username            代理用户名
         \\  password            代理密码
         \\

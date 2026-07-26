@@ -65,6 +65,12 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
     });
 
     // -- 经代理的 HTTP 请求 -------------------------------------------------
+    if (std.mem.eql(u8, protocol, "https")) {
+        output.print("  HTTP 请求  - 跳过 (https 代理需与代理建立 TLS，检测暂不支持)\n", .{});
+        output.print("\n  代理状态   ✓ 端口可连 (转发未验证)\n", .{});
+        return;
+    }
+
     const url = parseUrl(test_url) orelse {
         output.print("  HTTP 请求  ✗ 测试地址无效 (仅支持 http:// 与 https://)\n", .{});
         return;
@@ -159,8 +165,14 @@ fn httpProbe(
 
     var req_buf: [2048]u8 = undefined;
 
-    if (std.mem.eql(u8, protocol, "socks5")) {
-        try socks5Connect(stream, url.host, url.port);
+    const is_socks5 = std.mem.eql(u8, protocol, "socks5");
+    const is_socks4 = std.mem.eql(u8, protocol, "socks4");
+    if (is_socks5 or is_socks4) {
+        if (is_socks5) {
+            try socks5Connect(stream, url.host, url.port);
+        } else {
+            try socks4Connect(stream, url.host, url.port);
+        }
         if (url.https) return 0;
         const req = try std.fmt.bufPrint(&req_buf, "GET {s} HTTP/1.1\r\nHost: {s}\r\nUser-Agent: proxy-check\r\nConnection: close\r\n\r\n", .{ url.path, url.host });
         try writeAll(stream, req);
@@ -223,6 +235,27 @@ fn socks5Connect(stream: std.net.Stream, host: []const u8, port: u16) !void {
         4 => try readExact(stream, buf[0..18]),
         else => return error.Socks5BadReply,
     }
+}
+
+/// SOCKS4a CONNECT: IP 置 0.0.0.1，域名放在 userid 之后，由代理侧解析。
+fn socks4Connect(stream: std.net.Stream, host: []const u8, port: u16) !void {
+    var req: [512]u8 = undefined;
+    req[0] = 4; // VN
+    req[1] = 1; // CD: CONNECT
+    req[2] = @intCast(port >> 8);
+    req[3] = @intCast(port & 0xff);
+    req[4] = 0; // 0.0.0.1 = socks4a 域名标记
+    req[5] = 0;
+    req[6] = 0;
+    req[7] = 1;
+    req[8] = 0; // 空 userid
+    @memcpy(req[9..][0..host.len], host);
+    req[9 + host.len] = 0;
+    try writeAll(stream, req[0 .. 10 + host.len]);
+
+    var resp: [8]u8 = undefined;
+    try readExact(stream, &resp);
+    if (resp[1] != 0x5A) return error.Socks4ConnectFailed;
 }
 
 /// 读取响应首行并解析状态码，如 "HTTP/1.1 204 No Content" -> 204。

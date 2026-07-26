@@ -56,9 +56,10 @@ const fields = [_]Field{
     .{ .key = "password", .label = "Password", .empty_hint = "(未设置)" },
 };
 
-/// Protocol 是二选一，不做自由文本编辑。
+/// Protocol 从固定选项中选择，不做自由文本编辑。
+/// 环境变量代理仅支持这些 URL scheme (TCP/UDP 转发是服务端模式，表达不了)。
 const protocol_field = 2;
-const protocol_options = [_][]const u8{ "http", "socks5" };
+const protocol_options = [_][]const u8{ "http", "https", "socks5", "socks4" };
 
 const Panel = enum { config, aliases };
 const Mode = enum { normal, edit_config, add_alias, confirm_delete };
@@ -315,9 +316,11 @@ const App = struct {
         self.mode = .edit_config;
         self.edit_field = self.config_cursor;
         if (self.edit_field == protocol_field) {
-            // Protocol 二选一: 定位到当前值
+            // Protocol 选项: 定位到当前值
             self.edit_opt = 0;
-            if (std.mem.eql(u8, self.config.protocol, "socks5")) self.edit_opt = 1;
+            for (protocol_options, 0..) |opt, oi| {
+                if (std.mem.eql(u8, self.config.protocol, opt)) self.edit_opt = oi;
+            }
             self.setStatus(.info, "←→ 切换协议，Enter 保存", .{});
             return;
         }
@@ -360,9 +363,13 @@ const App = struct {
                 self.mode = .normal;
                 self.setStatus(.info, "已取消", .{});
             },
-            .left, .right, .tab => self.edit_opt = 1 - self.edit_opt,
+            .left => self.edit_opt =
+                (self.edit_opt + protocol_options.len - 1) % protocol_options.len,
+            .right, .tab => self.edit_opt = (self.edit_opt + 1) % protocol_options.len,
             .char => |c| switch (c) {
-                'h', 'l', ' ' => self.edit_opt = 1 - self.edit_opt,
+                'h' => self.edit_opt =
+                    (self.edit_opt + protocol_options.len - 1) % protocol_options.len,
+                'l', ' ' => self.edit_opt = (self.edit_opt + 1) % protocol_options.len,
                 else => {},
             },
             .enter => {
@@ -1052,7 +1059,7 @@ const App = struct {
         const hint = switch (self.mode) {
             .normal => " ↑↓ 选择 · Tab 切换面板 · Enter 编辑 · a 添加别名 · d 删除 · r 刷新 · q 退出",
             .edit_config => if (self.edit_field == protocol_field)
-                " ←→ 切换 http/socks5 · Enter 保存 · Esc 取消"
+                " ←→ 切换协议 (http/https/socks5/socks4) · Enter 保存 · Esc 取消"
             else
                 " 输入新值 · Enter 保存 · Esc 取消 · Ctrl+U 清空 · 留空保存则恢复默认",
             .add_alias => " 空格 勾选平台(可多选) · ←→ 移动 · Enter 下一步/保存 · Esc 返回",
