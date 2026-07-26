@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.2.0] - 2026-07-26
+
+### 新增
+- ✨ feat(protocol): 协议选项扩展为 http/https/socks5/socks4 (009cb30)
+- ✨ feat(check): 新增 proxy status/check 代理连通性与延迟检测 (2441caa)
+- ✨ feat(version): proxy -v 显示构建信息，版本号跟随 git tag (7ced615)
+
+### 修复
+- 🐛 fix(tui): 选项行宽度自适应 + 窗口缩放实时重绘 (9bccdac)
+- 🐛 fix(tui): 协议选项紧凑排列，修复窄面板显示不全 (5ddd117)
+
+### 文档
+- 📝 docs(readme): 重写 README，折叠式结构 + 同步当前功能 (0eb5165)
+
 ## [1.1.0] - 2026-07-26
 
 ### 变更
