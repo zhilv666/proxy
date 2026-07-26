@@ -3,6 +3,7 @@
 const std = @import("std");
 const Config = @import("config.zig");
 const Alias = @import("alias.zig");
+const Profile = @import("profile.zig");
 const term = @import("term.zig");
 const output = @import("output.zig");
 
@@ -61,8 +62,8 @@ const fields = [_]Field{
 const protocol_field = 2;
 const protocol_options = [_][]const u8{ "http", "https", "socks5", "socks4" };
 
-const Panel = enum { config, aliases };
-const Mode = enum { normal, edit_config, add_alias, confirm_delete };
+const Panel = enum { config, nodes, aliases };
+const Mode = enum { normal, edit_config, add_alias, confirm_delete, save_node, confirm_del_node };
 const AddStep = enum { platform, name, command };
 const StatusKind = enum { info, ok, err };
 
@@ -84,6 +85,7 @@ pub fn run(allocator: std.mem.Allocator) !void {
         .config = Config.ConfigData.init(allocator),
         .aliases = try allocator.alloc(Alias.Entry, 0),
         .groups = try allocator.alloc(Group, 0),
+        .nodes = try allocator.alloc(Profile.Entry, 0),
     };
     defer app.deinit();
 
@@ -113,6 +115,7 @@ const App = struct {
     config: Config.ConfigData,
     aliases: []Alias.Entry,
     groups: []Group,
+    nodes: []Profile.Entry,
 
     frame: std.ArrayList(u8) = .{},
     row: std.ArrayList(u8) = .{},
@@ -130,6 +133,8 @@ const App = struct {
     config_cursor: usize = 0,
     alias_cursor: usize = 0,
     alias_scroll: usize = 0,
+    node_cursor: usize = 0,
+    node_scroll: usize = 0,
 
     // 行内编辑配置项。Protocol 走 edit_opt 二选一，其余走 edit 文本缓冲。
     edit: std.ArrayList(u8) = .{},
@@ -154,6 +159,7 @@ const App = struct {
     fn deinit(self: *App) void {
         self.config.deinit();
         Alias.freeEntries(self.allocator, self.aliases);
+        Profile.freeEntries(self.allocator, self.nodes);
         self.allocator.free(self.groups);
         self.frame.deinit(self.allocator);
         self.row.deinit(self.allocator);
@@ -183,11 +189,24 @@ const App = struct {
 
         self.rebuildGroups() catch {};
 
+        if (Profile.getAll(self.allocator)) |entries| {
+            Profile.freeEntries(self.allocator, self.nodes);
+            self.nodes = entries;
+        } else |err| {
+            self.setStatus(.err, "读取节点失败: {s}", .{@errorName(err)});
+        }
+
         if (self.groups.len == 0) {
             self.alias_cursor = 0;
             self.alias_scroll = 0;
         } else if (self.alias_cursor >= self.groups.len) {
             self.alias_cursor = self.groups.len - 1;
+        }
+        if (self.nodes.len == 0) {
+            self.node_cursor = 0;
+            self.node_scroll = 0;
+        } else if (self.node_cursor >= self.nodes.len) {
+            self.node_cursor = self.nodes.len - 1;
         }
     }
 
@@ -257,6 +276,8 @@ const App = struct {
             .edit_config => try self.handleEdit(key),
             .add_alias => try self.handleAdd(key),
             .confirm_delete => self.handleConfirm(key),
+            .save_node => try self.handleSaveNode(key),
+            .confirm_del_node => self.handleConfirmDelNode(key),
         }
     }
 
@@ -266,21 +287,30 @@ const App = struct {
                 self.running = false;
             },
             .escape => self.running = false,
-            .tab => self.panel = if (self.panel == .config) .aliases else .config,
+            .tab => self.panel = switch (self.panel) {
+                .config => .nodes,
+                .nodes => .aliases,
+                .aliases => .config,
+            },
             .up => self.moveUp(),
             .down => self.moveDown(),
             .home => switch (self.panel) {
                 .config => self.config_cursor = 0,
+                .nodes => self.node_cursor = 0,
                 .aliases => self.alias_cursor = 0,
             },
             .end => switch (self.panel) {
                 .config => self.config_cursor = fields.len - 1,
+                .nodes => if (self.nodes.len > 0) {
+                    self.node_cursor = self.nodes.len - 1;
+                },
                 .aliases => if (self.groups.len > 0) {
                     self.alias_cursor = self.groups.len - 1;
                 },
             },
             .enter => switch (self.panel) {
                 .config => self.startEdit(),
+                .nodes => self.switchNode(),
                 .aliases => try self.startEditAlias(),
             },
             .char => |c| switch (c) {
@@ -288,7 +318,12 @@ const App = struct {
                 'j' => self.moveDown(),
                 'k' => self.moveUp(),
                 'a' => self.startAdd(),
-                'd' => self.startDelete(),
+                's' => self.startSaveNode(),
+                'd' => if (self.panel == .nodes) {
+                    self.startDeleteNode();
+                } else {
+                    self.startDelete();
+                },
                 'r' => {
                     self.setStatus(.ok, "✓ 已重新加载", .{});
                     self.reload();
@@ -303,6 +338,10 @@ const App = struct {
         switch (self.panel) {
             .config => self.config_cursor =
                 (self.config_cursor + fields.len - 1) % fields.len,
+            .nodes => if (self.nodes.len > 0) {
+                self.node_cursor =
+                    (self.node_cursor + self.nodes.len - 1) % self.nodes.len;
+            },
             .aliases => if (self.groups.len > 0) {
                 self.alias_cursor =
                     (self.alias_cursor + self.groups.len - 1) % self.groups.len;
@@ -313,10 +352,109 @@ const App = struct {
     fn moveDown(self: *App) void {
         switch (self.panel) {
             .config => self.config_cursor = (self.config_cursor + 1) % fields.len,
+            .nodes => if (self.nodes.len > 0) {
+                self.node_cursor = (self.node_cursor + 1) % self.nodes.len;
+            },
             .aliases => if (self.groups.len > 0) {
                 self.alias_cursor = (self.alias_cursor + 1) % self.groups.len;
             },
         }
+    }
+
+    // -- 节点操作 ---------------------------------------------------------
+
+    fn switchNode(self: *App) void {
+        if (self.nodes.len == 0) {
+            self.startSaveNode();
+            return;
+        }
+        const node = self.nodes[self.node_cursor];
+        if (std.mem.eql(u8, self.config.node, node.name)) {
+            self.setStatus(.info, "已是当前节点: {s}", .{node.name});
+            return;
+        }
+        Profile.switchTo(self.allocator, node.name) catch |err| {
+            self.setStatus(.err, "切换失败: {s}", .{@errorName(err)});
+            return;
+        };
+        self.setStatus(.ok, "✓ 已切换到节点 {s}", .{node.name});
+        self.reload();
+    }
+
+    fn startSaveNode(self: *App) void {
+        self.panel = .nodes;
+        self.mode = .save_node;
+        self.edit.clearRetainingCapacity();
+        // 预填当前节点名，便于快速更新
+        self.edit.appendSlice(self.allocator, self.config.node) catch {};
+        self.setStatus(.info, "把当前配置保存为节点", .{});
+    }
+
+    fn handleSaveNode(self: *App, key: term.Key) !void {
+        switch (key) {
+            .escape => {
+                self.mode = .normal;
+                self.setStatus(.info, "已取消", .{});
+            },
+            .ctrl => |c| switch (c) {
+                3 => {
+                    self.mode = .normal;
+                    self.setStatus(.info, "已取消", .{});
+                },
+                21 => self.edit.clearRetainingCapacity(),
+                else => {},
+            },
+            .backspace => popCodepoint(&self.edit),
+            // 节点名不允许空格
+            .char => |c| if (c != ' ') try self.appendCp(&self.edit, c),
+            .enter => {
+                const name = std.mem.trim(u8, self.edit.items, " \t");
+                if (name.len == 0) {
+                    self.setStatus(.err, "节点名不能为空", .{});
+                    return;
+                }
+                Profile.saveCurrent(self.allocator, name) catch |err| {
+                    self.setStatus(.err, "保存失败: {s}", .{@errorName(err)});
+                    return;
+                };
+                self.mode = .normal;
+                self.setStatus(.ok, "✓ 当前配置已保存为节点 {s}", .{name});
+                self.reload();
+                for (self.nodes, 0..) |n, i| {
+                    if (std.mem.eql(u8, n.name, name)) self.node_cursor = i;
+                }
+            },
+            else => {},
+        }
+    }
+
+    fn startDeleteNode(self: *App) void {
+        if (self.nodes.len == 0) {
+            self.setStatus(.err, "没有可删除的节点", .{});
+            return;
+        }
+        self.mode = .confirm_del_node;
+        const node = self.nodes[self.node_cursor];
+        self.setStatus(.err, "删除节点 {s}？按 y 确认", .{node.name});
+    }
+
+    fn handleConfirmDelNode(self: *App, key: term.Key) void {
+        self.mode = .normal;
+        const yes = switch (key) {
+            .char => |c| c == 'y' or c == 'Y',
+            else => false,
+        };
+        if (!yes) {
+            self.setStatus(.info, "已取消", .{});
+            return;
+        }
+        const node = self.nodes[self.node_cursor];
+        Profile.remove(self.allocator, node.name) catch |err| {
+            self.setStatus(.err, "删除失败: {s}", .{@errorName(err)});
+            return;
+        };
+        self.setStatus(.ok, "✓ 节点 {s} 已删除", .{node.name});
+        self.reload();
     }
 
     // -- 编辑配置项 ------------------------------------------------------
@@ -706,15 +844,24 @@ const App = struct {
     }
 
     /// 窄终端: 上下堆叠，别名列表撑满剩余高度，弹窗内嵌在别名面板下方。
+    /// 高度紧张 (h<20) 或弹窗打开时隐藏节点面板，保证不溢出。
     fn renderNarrow(self: *App, size: term.Size) !void {
         try self.renderHeader();
         try self.renderConfigPanel();
 
-        // 布局固定行数: 顶部 3 + 配置面板 7 + 面板间距 + 别名边框 2
-        //             (+ 弹窗 5) + 状态栏 1 + 底部快捷键 1
         const modal = self.mode == .add_alias;
+        var nh: usize = 0;
+        if (!modal and size.h >= 20) {
+            // 显式 usize: @min 会把结果类型收窄，直接 +2 会在窄类型里溢出
+            const node_rows: usize = @min(@max(self.nodes.len, 1), 3);
+            try self.renderNodesPanel(node_rows);
+            nh = node_rows + 2;
+        }
+
+        // 布局固定行数: 顶部 3 + 配置面板 7 + 节点面板 nh + 面板间距
+        //             + 别名边框 2 (+ 弹窗 5) + 状态栏 1 + 底部快捷键 1
         if (!modal) try self.emit(EOL);
-        const fixed: usize = if (modal) 19 else 15;
+        const fixed: usize = (if (modal) @as(usize, 19) else 15) + nh;
         const avail = if (size.h > fixed) size.h - fixed else 1;
         try self.renderAliasPanel(avail);
 
@@ -739,11 +886,15 @@ const App = struct {
         var right: std.ArrayList([]u8) = .{};
         defer freeLines(self.allocator, &right);
 
-        // 左栏: 配置面板 (7 行) + 快捷键说明填满剩余高度
+        // 左栏: 配置面板 (7 行) + 节点面板 + 快捷键说明填满剩余高度
         self.capture = &left;
         self.setPanelWidth(lw);
         try self.renderConfigPanel();
-        if (ch > 11) try self.renderHelpPanel(ch - 7);
+        const node_rows: usize = @min(@max(self.nodes.len, 1), 5);
+        var nh: usize = node_rows + 2;
+        if (7 + nh > ch) nh = if (ch > 10) ch - 7 else 3;
+        try self.renderNodesPanel(nh - 2);
+        if (ch > 7 + nh + 4) try self.renderHelpPanel(ch - 7 - nh);
 
         // 右栏: 别名面板独占整列
         self.capture = &right;
@@ -962,6 +1113,76 @@ const App = struct {
         try self.boxBottom(active);
     }
 
+    /// 节点面板: Enter 切换、s 保存、d 删除。rows 为内容行数。
+    fn renderNodesPanel(self: *App, rows: usize) !void {
+        const active = self.panel == .nodes and self.mode != .add_alias;
+
+        var title_buf: [64]u8 = undefined;
+        const title = if (self.nodes.len == 0)
+            "节点"
+        else
+            std.fmt.bufPrint(&title_buf, "节点 {d}/{d}", .{
+                self.node_cursor + 1, self.nodes.len,
+            }) catch "节点";
+        try self.boxTop(title, active);
+
+        // 滚动窗口跟随光标
+        if (self.node_cursor < self.node_scroll) {
+            self.node_scroll = self.node_cursor;
+        }
+        if (self.nodes.len > 0 and self.node_cursor >= self.node_scroll + rows) {
+            self.node_scroll = self.node_cursor + 1 - rows;
+        }
+        if (self.nodes.len <= rows) {
+            self.node_scroll = 0;
+        } else if (self.node_scroll + rows > self.nodes.len) {
+            self.node_scroll = self.nodes.len - rows;
+        }
+
+        var r: usize = 0;
+        while (r < rows) : (r += 1) {
+            const idx = self.node_scroll + r;
+            self.rowBegin();
+
+            if (self.nodes.len == 0) {
+                if (r == 0) {
+                    try self.rowRaw(A.dim);
+                    try self.rowTxt("   (暂无节点，按 s 保存当前配置)");
+                }
+            } else if (idx < self.nodes.len) {
+                const node = self.nodes[idx];
+                const selected = active and idx == self.node_cursor;
+                const deleting = selected and self.mode == .confirm_del_node;
+                const current = std.mem.eql(u8, self.config.node, node.name);
+
+                if (deleting) {
+                    try self.rowRaw(A.rev ++ A.bred);
+                } else if (selected) {
+                    try self.rowRaw(A.rev);
+                }
+                try self.rowTxt(if (selected) " ▸ " else "   ");
+                if (!selected) {
+                    try self.rowRaw(if (current) A.green else A.bwhite);
+                }
+                try self.rowTxt(if (current) "● " else "  ");
+                try self.rowTxt(node.name);
+                if (!selected) try self.rowRaw(A.reset);
+                try self.rowTxt(" ");
+                try self.rowPadTo(17);
+                if (!selected) try self.rowRaw(A.dim);
+                var url_buf: [128]u8 = undefined;
+                const url = std.fmt.bufPrint(&url_buf, "{s}://{s}:{s}", .{
+                    node.protocol, node.host, node.port,
+                }) catch "";
+                try self.rowTxt(url);
+                if (!selected) try self.rowRaw(A.reset);
+            }
+            try self.rowEnd(active);
+        }
+
+        try self.boxBottom(active);
+    }
+
     /// 快捷键说明面板 (宽屏左栏下半部)。height 含上下边框。
     fn renderHelpPanel(self: *App, height: usize) !void {
         if (height < 4) return;
@@ -971,9 +1192,10 @@ const App = struct {
         const items = [_]Help{
             .{ .key = "↑↓ / j k", .desc = "移动光标" },
             .{ .key = "Tab", .desc = "切换面板" },
-            .{ .key = "Enter", .desc = "编辑所选项" },
+            .{ .key = "Enter", .desc = "编辑 / 切换节点" },
             .{ .key = "a", .desc = "添加别名 (平台可多选)" },
-            .{ .key = "d", .desc = "删除别名" },
+            .{ .key = "s", .desc = "保存当前配置为节点" },
+            .{ .key = "d", .desc = "删除所选 (别名/节点)" },
             .{ .key = "r", .desc = "重新加载" },
             .{ .key = "q / Esc", .desc = "退出" },
         };
@@ -1095,6 +1317,13 @@ const App = struct {
     }
 
     fn renderStatus(self: *App) !void {
+        // 保存节点模式: 状态栏变为名称输入框
+        if (self.mode == .save_node) {
+            try self.emit(" " ++ A.bcyan ++ "保存节点，名称: " ++ A.reset ++ A.yellow);
+            try self.emit(tailFit(self.edit.items, self.w_total -| 22));
+            try self.emit(A.reset ++ A.rev ++ " " ++ A.reset ++ EOL);
+            return;
+        }
         const color = switch (self.status_kind) {
             .info => A.dim,
             .ok => A.green,
@@ -1109,13 +1338,17 @@ const App = struct {
 
     fn renderFooter(self: *App) !void {
         const hint = switch (self.mode) {
-            .normal => " ↑↓ 选择 · Tab 切换面板 · Enter 编辑 · a 添加别名 · d 删除 · r 刷新 · q 退出",
+            .normal => switch (self.panel) {
+                .nodes => " ↑↓ 选择 · Enter 切换节点 · s 保存当前为节点 · d 删除 · Tab 面板 · q 退出",
+                else => " ↑↓ 选择 · Tab 面板 · Enter 编辑 · a 别名 · s 存节点 · d 删除 · r 刷新 · q 退出",
+            },
             .edit_config => if (self.edit_field == protocol_field)
                 " ←→ 切换协议 (http/https/socks5/socks4) · Enter 保存 · Esc 取消"
             else
                 " 输入新值 · Enter 保存 · Esc 取消 · Ctrl+U 清空 · 留空保存则恢复默认",
             .add_alias => " 空格 勾选平台(可多选) · ←→ 移动 · Enter 下一步/保存 · Esc 返回",
-            .confirm_delete => " y 确认删除 · 其他任意键取消",
+            .confirm_delete, .confirm_del_node => " y 确认删除 · 其他任意键取消",
+            .save_node => " 输入节点名 · Enter 保存 · Esc 取消 · Ctrl+U 清空",
         };
         try self.emit(A.dim);
         try self.emit(hint[0..term.truncateBytes(hint, self.w_total)]);
@@ -1263,6 +1496,7 @@ test "renderFrame 输出行数恰好等于终端高度" {
         .config = Config.ConfigData.init(allocator),
         .aliases = try allocator.alloc(Alias.Entry, 0),
         .groups = try allocator.alloc(Group, 0),
+        .nodes = try allocator.alloc(Profile.Entry, 0),
     };
     defer app.deinit();
 
@@ -1293,6 +1527,7 @@ test "宽终端双栏布局撑满整屏" {
         .config = Config.ConfigData.init(allocator),
         .aliases = try allocator.alloc(Alias.Entry, 0),
         .groups = try allocator.alloc(Group, 0),
+        .nodes = try allocator.alloc(Profile.Entry, 0),
     };
     defer app.deinit();
 
@@ -1318,6 +1553,7 @@ test "同名同命令的别名跨平台合并为一个分组" {
         .config = Config.ConfigData.init(allocator),
         .aliases = try allocator.alloc(Alias.Entry, 4),
         .groups = try allocator.alloc(Group, 0),
+        .nodes = try allocator.alloc(Profile.Entry, 0),
     };
     app.aliases[0] = .{ .platform = try allocator.dupe(u8, "linux"), .name = try allocator.dupe(u8, "gs"), .command = try allocator.dupe(u8, "git status") };
     app.aliases[1] = .{ .platform = try allocator.dupe(u8, "macos"), .name = try allocator.dupe(u8, "gs"), .command = try allocator.dupe(u8, "git status") };
@@ -1337,6 +1573,7 @@ test "同名同命令的别名跨平台合并为一个分组" {
 test {
     _ = term;
 }
+
 
 
 

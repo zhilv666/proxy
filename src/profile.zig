@@ -161,6 +161,65 @@ pub fn remove(allocator: std.mem.Allocator, name: []const u8) !void {
     }
 }
 
+/// 单个节点记录 (显示用有效值，未设置的字段取默认)，调用方用 freeEntries 释放。
+pub const Entry = struct {
+    name: []const u8,
+    host: []const u8,
+    port: []const u8,
+    protocol: []const u8,
+};
+
+/// 读取全部节点为数组，供 TUI 等程序化访问。
+pub fn getAll(allocator: std.mem.Allocator) ![]Entry {
+    var parsed = try loadProfiles(allocator);
+    defer parsed.deinit();
+
+    var result: std.ArrayList(Entry) = .{};
+    errdefer {
+        for (result.items) |e| {
+            allocator.free(e.name);
+            allocator.free(e.host);
+            allocator.free(e.port);
+            allocator.free(e.protocol);
+        }
+        result.deinit(allocator);
+    }
+
+    if (parsed.value != .object) return result.toOwnedSlice(allocator);
+
+    var it = parsed.value.object.iterator();
+    while (it.next()) |entry| {
+        if (entry.value_ptr.* != .object) continue;
+        const obj = entry.value_ptr.object;
+        const name = try allocator.dupe(u8, entry.key_ptr.*);
+        errdefer allocator.free(name);
+        const host = try allocator.dupe(u8, strField(obj, "host", "127.0.0.1"));
+        errdefer allocator.free(host);
+        const port = try allocator.dupe(u8, strField(obj, "port", "7890"));
+        errdefer allocator.free(port);
+        const protocol = try allocator.dupe(u8, strField(obj, "protocol", "http"));
+        errdefer allocator.free(protocol);
+        try result.append(allocator, .{
+            .name = name,
+            .host = host,
+            .port = port,
+            .protocol = protocol,
+        });
+    }
+
+    return result.toOwnedSlice(allocator);
+}
+
+pub fn freeEntries(allocator: std.mem.Allocator, entries: []Entry) void {
+    for (entries) |e| {
+        allocator.free(e.name);
+        allocator.free(e.host);
+        allocator.free(e.port);
+        allocator.free(e.protocol);
+    }
+    allocator.free(entries);
+}
+
 /// 列出所有节点，标记当前激活的。
 pub fn list(allocator: std.mem.Allocator) !void {
     var parsed = try loadProfiles(allocator);
