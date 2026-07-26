@@ -4,6 +4,7 @@ const build_info = @import("build_info");
 const Config = @import("config.zig");
 const Alias = @import("alias.zig");
 const Tui = @import("tui.zig");
+const Check = @import("check.zig");
 const output = @import("output.zig");
 
 pub fn main() !void {
@@ -31,6 +32,8 @@ pub fn main() !void {
         try handleAlias(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "tui")) {
         try Tui.run(allocator);
+    } else if (std.mem.eql(u8, command, "status") or std.mem.eql(u8, command, "check")) {
+        try Check.run(allocator, args[2..]);
     } else {
         // Execute command with proxy
         try execWithProxy(allocator, args[1..]);
@@ -68,6 +71,7 @@ fn printHelp() void {
         \\  config              配置管理
         \\  alias               别名管理
         \\  tui                 启动 TUI 界面
+        \\  status | check      检测代理连通性与延迟 (可选自定义测试地址)
         \\  <command> [args]    使用代理执行命令
         \\
         \\选项:
@@ -246,4 +250,9 @@ fn execWithProxy(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
     const term = try child.spawnAndWait();
     std.process.exit(term.Exited);
+}
+
+test {
+    _ = Tui;
+    _ = Check;
 }
