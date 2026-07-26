@@ -24,7 +24,32 @@ proxy status                      # 检测代理连通性与延迟
 
 ## 安装
 
-从 [Releases](https://github.com/zhilv666/proxy/releases) 下载对应平台的压缩包，解压后将 `proxy` 放入 `PATH` 即可。
+**Scoop (Windows)**
+
+```powershell
+scoop install https://raw.githubusercontent.com/zhilv666/proxy/main/pkg/scoop/proxy.json
+```
+
+**Homebrew (macOS / Linux)**
+
+```bash
+brew tap zhilv666/tap
+brew install proxy
+```
+
+**一键脚本**
+
+```bash
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/zhilv666/proxy/main/scripts/install.sh | bash
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/zhilv666/proxy/main/scripts/install.ps1 | iex
+```
+
+**手动下载**
+
+从 [Releases](https://github.com/zhilv666/proxy/releases) 下载对应平台的压缩包（附 `SHA256SUMS.txt` 校验），解压后将 `proxy` 放入 `PATH` 即可。
 
 <details>
 <summary>从源码构建</summary>

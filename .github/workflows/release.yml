@@ -93,12 +93,55 @@ jobs:
     needs: [changelog, build]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: 生成校验和
+        run: |
+          mkdir -p dist
+          cp artifacts/bin-*/* dist/
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          cat dist/SHA256SUMS.txt
 
       - uses: softprops/action-gh-release@v2
         with:
           name: ${{ github.ref_name }}
           body_path: artifacts/release-notes/release-notes.md
-          files: artifacts/bin-*/*
+          files: dist/*
+
+      - name: 更新包管理器清单 (Scoop/Homebrew)
+        run: |
+          bash scripts/gen-manifests.sh "${GITHUB_REF_NAME}" dist/SHA256SUMS.txt
+          if ! git diff --quiet pkg 2>/dev/null || [ -n "$(git status --porcelain pkg)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add pkg
+            git commit -m "chore: 更新 ${GITHUB_REF_NAME} 包管理器清单"
+            git pull --rebase origin "${{ github.event.repository.default_branch }}"
+            git push origin "HEAD:${{ github.event.repository.default_branch }}"
+          fi
+
+      - name: 同步 Homebrew Tap (需配置 TAP_TOKEN 密钥)
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "未配置 TAP_TOKEN，跳过 tap 同步"
+            exit 0
+          fi
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/zhilv666/homebrew-tap.git" /tmp/tap
+          mkdir -p /tmp/tap/Formula
+          cp pkg/homebrew/proxy.rb /tmp/tap/Formula/proxy.rb
+          cd /tmp/tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/proxy.rb
+          if ! git diff --cached --quiet; then
+            git commit -m "proxy ${GITHUB_REF_NAME}"
+            git push
+          fi
