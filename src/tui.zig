@@ -151,7 +151,9 @@ const App = struct {
     detail_cursor: usize = 0,
 
     // 字段编辑。Protocol 走 edit_opt 选项，其余走 edit 文本缓冲。
+    // *_pos 为行内光标字节偏移 (始终位于码点边界)。
     edit: std.ArrayList(u8) = .{},
+    edit_pos: usize = 0,
     edit_field: usize = 0,
     edit_opt: usize = 0,
 
@@ -160,7 +162,9 @@ const App = struct {
     add_plat_cursor: usize = 0,
     add_selected: [platforms.len]bool = .{ true, false, false, false },
     add_name: std.ArrayList(u8) = .{},
+    add_name_pos: usize = 0,
     add_cmd: std.ArrayList(u8) = .{},
+    add_cmd_pos: usize = 0,
 
     status_buf: [256]u8 = undefined,
     status_len: usize = 0,
@@ -469,6 +473,7 @@ const App = struct {
         self.edit.clearRetainingCapacity();
         // 预填当前节点名，便于快速更新
         self.edit.appendSlice(self.allocator, self.config.node) catch {};
+        self.edit_pos = self.edit.items.len;
         self.setStatus(.info, "把当前配置保存为节点", .{});
     }
 
@@ -483,12 +488,20 @@ const App = struct {
                     self.mode = .normal;
                     self.setStatus(.info, "已取消", .{});
                 },
-                21 => self.edit.clearRetainingCapacity(),
+                21 => {
+                    self.edit.clearRetainingCapacity();
+                    self.edit_pos = 0;
+                },
                 else => {},
             },
-            .backspace => popCodepoint(&self.edit),
+            .backspace => self.editBackspace(&self.edit, &self.edit_pos),
+            .delete => self.editDelete(&self.edit, &self.edit_pos),
+            .left => self.edit_pos = cpPrev(self.edit.items, self.edit_pos),
+            .right => self.edit_pos = cpNext(self.edit.items, self.edit_pos),
+            .home => self.edit_pos = 0,
+            .end => self.edit_pos = self.edit.items.len,
             // 节点名不允许空格
-            .char => |c| if (c != ' ') try self.appendCp(&self.edit, c),
+            .char => |c| if (c != ' ') try self.editInsert(&self.edit, &self.edit_pos, c),
             .enter => {
                 const name = std.mem.trim(u8, self.edit.items, " \t");
                 if (name.len == 0) {
@@ -551,6 +564,7 @@ const App = struct {
                 if (is_node and self.detail_cursor == 0) {
                     self.edit.clearRetainingCapacity();
                     try self.edit.appendSlice(self.allocator, self.nodes[self.node_cursor - 1].name);
+                    self.edit_pos = self.edit.items.len;
                     self.mode = .edit_field;
                     self.setStatus(.info, "编辑节点名称", .{});
                     return;
@@ -573,6 +587,7 @@ const App = struct {
                 }
                 self.edit.clearRetainingCapacity();
                 try self.edit.appendSlice(self.allocator, cur);
+                self.edit_pos = self.edit.items.len;
                 self.mode = .edit_field;
                 self.setStatus(.info, "编辑 {s}，留空保存则恢复默认", .{fields[fi].label});
             },
@@ -590,6 +605,7 @@ const App = struct {
                             self.allocator,
                             if (self.detail_cursor == 0) g.name else g.command,
                         );
+                        self.edit_pos = self.edit.items.len;
                         self.mode = .edit_field;
                         self.setStatus(.info, "编辑别名{s}", .{
                             if (self.detail_cursor == 0) @as([]const u8, "名称") else "命令",
@@ -629,20 +645,29 @@ const App = struct {
                 self.setStatus(.info, "已取消", .{});
             },
             .enter => try self.commitFieldEdit(),
-            .backspace => popCodepoint(&self.edit),
+            .backspace => self.editBackspace(&self.edit, &self.edit_pos),
+            .delete => self.editDelete(&self.edit, &self.edit_pos),
+            .left => self.edit_pos = cpPrev(self.edit.items, self.edit_pos),
+            .right => self.edit_pos = cpNext(self.edit.items, self.edit_pos),
+            .home => self.edit_pos = 0,
+            .end => self.edit_pos = self.edit.items.len,
             .char => |c| {
                 // 别名名称/节点名称按空格分词解析或作为键名，不允许空格
                 const no_space = self.edit_field == 0 and
                     (target == .alias or target == .node);
                 if (no_space and c == ' ') return;
-                try self.appendCp(&self.edit, c);
+                try self.editInsert(&self.edit, &self.edit_pos, c);
             },
             .ctrl => |c| switch (c) {
                 3 => {
                     self.mode = .normal;
                     self.setStatus(.info, "已取消", .{});
                 },
-                21 => self.edit.clearRetainingCapacity(), // Ctrl+U 清空
+                21 => {
+                    // Ctrl+U 清空
+                    self.edit.clearRetainingCapacity();
+                    self.edit_pos = 0;
+                },
                 else => {},
             },
             else => {},
@@ -886,7 +911,9 @@ const App = struct {
         self.add_plat_cursor = 0;
         self.add_selected = .{ true, false, false, false };
         self.add_name.clearRetainingCapacity();
+        self.add_name_pos = 0;
         self.add_cmd.clearRetainingCapacity();
+        self.add_cmd_pos = 0;
         self.setStatus(.info, "添加别名: ←→ 移动，空格 勾选平台 (可多选)", .{});
     }
 
@@ -898,16 +925,36 @@ const App = struct {
                 .name => self.add_step = .platform,
                 .command => self.add_step = .name,
             },
-            .left => if (self.add_step == .platform) {
-                self.add_plat_cursor = (self.add_plat_cursor + platforms.len - 1) % platforms.len;
+            .left => switch (self.add_step) {
+                .platform => self.add_plat_cursor =
+                    (self.add_plat_cursor + platforms.len - 1) % platforms.len,
+                .name => self.add_name_pos = cpPrev(self.add_name.items, self.add_name_pos),
+                .command => self.add_cmd_pos = cpPrev(self.add_cmd.items, self.add_cmd_pos),
             },
-            .right => if (self.add_step == .platform) {
-                self.add_plat_cursor = (self.add_plat_cursor + 1) % platforms.len;
+            .right => switch (self.add_step) {
+                .platform => self.add_plat_cursor = (self.add_plat_cursor + 1) % platforms.len,
+                .name => self.add_name_pos = cpNext(self.add_name.items, self.add_name_pos),
+                .command => self.add_cmd_pos = cpNext(self.add_cmd.items, self.add_cmd_pos),
+            },
+            .home => switch (self.add_step) {
+                .platform => {},
+                .name => self.add_name_pos = 0,
+                .command => self.add_cmd_pos = 0,
+            },
+            .end => switch (self.add_step) {
+                .platform => {},
+                .name => self.add_name_pos = self.add_name.items.len,
+                .command => self.add_cmd_pos = self.add_cmd.items.len,
             },
             .backspace => switch (self.add_step) {
                 .platform => {},
-                .name => popCodepoint(&self.add_name),
-                .command => popCodepoint(&self.add_cmd),
+                .name => self.editBackspace(&self.add_name, &self.add_name_pos),
+                .command => self.editBackspace(&self.add_cmd, &self.add_cmd_pos),
+            },
+            .delete => switch (self.add_step) {
+                .platform => {},
+                .name => self.editDelete(&self.add_name, &self.add_name_pos),
+                .command => self.editDelete(&self.add_cmd, &self.add_cmd_pos),
             },
             .char => |c| switch (self.add_step) {
                 .platform => switch (c) {
@@ -919,8 +966,8 @@ const App = struct {
                     else => {},
                 },
                 // 别名按空格分词解析，名称里不允许空格
-                .name => if (c != ' ') try self.appendCp(&self.add_name, c),
-                .command => try self.appendCp(&self.add_cmd, c),
+                .name => if (c != ' ') try self.editInsert(&self.add_name, &self.add_name_pos, c),
+                .command => try self.editInsert(&self.add_cmd, &self.add_cmd_pos, c),
             },
             .enter => switch (self.add_step) {
                 .platform => {
@@ -1051,13 +1098,27 @@ const App = struct {
         self.reload();
     }
 
-    // -- 输入缓冲工具 ------------------------------------------------------
+    // -- 行内编辑工具: 光标可在文本内任意移动 --------------------------------
 
-    fn appendCp(self: *App, list: *std.ArrayList(u8), cp: u21) !void {
+    fn editInsert(self: *App, list: *std.ArrayList(u8), pos: *usize, cp: u21) !void {
         if (list.items.len >= max_input_bytes) return;
         var tmp: [4]u8 = undefined;
         const n = std.unicode.utf8Encode(cp, &tmp) catch return;
-        try list.appendSlice(self.allocator, tmp[0..n]);
+        try list.insertSlice(self.allocator, pos.*, tmp[0..n]);
+        pos.* += n;
+    }
+
+    fn editBackspace(self: *App, list: *std.ArrayList(u8), pos: *usize) void {
+        if (pos.* == 0) return;
+        const prev = cpPrev(list.items, pos.*);
+        list.replaceRange(self.allocator, prev, pos.* - prev, &.{}) catch {};
+        pos.* = prev;
+    }
+
+    fn editDelete(self: *App, list: *std.ArrayList(u8), pos: *usize) void {
+        if (pos.* >= list.items.len) return;
+        const next = cpNext(list.items, pos.*);
+        list.replaceRange(self.allocator, pos.*, next - pos.*, &.{}) catch {};
     }
 
     // ------------------------------------------------------------------
@@ -1493,13 +1554,7 @@ const App = struct {
                 );
             }
         } else if (editing) {
-            try self.rowRaw(A.yellow);
-            const room = self.iw -| self.row_used -| 1;
-            try self.rowTxt(tailFit(self.edit.items, room));
-            // 块状光标
-            try self.rowRaw(A.reset ++ A.rev);
-            try self.rowTxt(" ");
-            try self.rowRaw(A.reset);
+            try self.rowEditText(self.edit.items, self.edit_pos);
         } else {
             if (value.len == 0) {
                 if (!selected) try self.rowRaw(A.dim);
@@ -1527,12 +1582,7 @@ const App = struct {
         try self.rowPadTo(14);
 
         if (editing) {
-            try self.rowRaw(A.yellow);
-            const room = self.iw -| self.row_used -| 1;
-            try self.rowTxt(tailFit(self.edit.items, room));
-            try self.rowRaw(A.reset ++ A.rev);
-            try self.rowTxt(" ");
-            try self.rowRaw(A.reset);
+            try self.rowEditText(self.edit.items, self.edit_pos);
         } else {
             if (!selected) try self.rowRaw(A.bwhite);
             try self.rowTxt(value);
@@ -1645,10 +1695,34 @@ const App = struct {
         }
         try self.rowEnd(true);
 
-        try self.inputRow("名称", self.add_name.items, self.add_step == .name);
-        try self.inputRow("命令", self.add_cmd.items, self.add_step == .command);
+        try self.inputRow("名称", self.add_name.items, self.add_name_pos, self.add_step == .name);
+        try self.inputRow("命令", self.add_cmd.items, self.add_cmd_pos, self.add_step == .command);
 
         try self.boxBottom(true);
+    }
+
+    /// 行内编辑渲染: 光标处反色，窗口滚动保证光标可见。
+    fn rowEditText(self: *App, text: []const u8, pos: usize) !void {
+        const room = self.iw -| self.row_used;
+        if (room < 2) return;
+        // 光标须可见: 窗口起点向前收缩
+        var start: usize = 0;
+        while (term.strWidth(text[start..pos]) > room - 1) {
+            start = cpNext(text, start);
+        }
+        try self.rowRaw(A.yellow);
+        try self.rowTxt(text[start..pos]);
+        try self.rowRaw(A.reset ++ A.rev);
+        if (pos < text.len) {
+            const next = cpNext(text, pos);
+            try self.rowTxt(text[pos..next]);
+            try self.rowRaw(A.reset ++ A.yellow);
+            try self.rowTxt(text[next..]);
+            try self.rowRaw(A.reset);
+        } else {
+            try self.rowTxt(" ");
+            try self.rowRaw(A.reset);
+        }
     }
 
     /// 紧凑选项切换器: "◂ 当前项 ▸ 2/4"。选项平铺放不下时的通用退化形态。
@@ -1665,18 +1739,13 @@ const App = struct {
         try self.rowRaw(A.reset);
     }
 
-    fn inputRow(self: *App, label: []const u8, value: []const u8, focused: bool) !void {
+    fn inputRow(self: *App, label: []const u8, value: []const u8, pos: usize, focused: bool) !void {
         self.rowBegin();
         try self.rowTxt(if (focused) " ▸ " else "   ");
         try self.rowTxt(label);
         try self.rowPadTo(10);
         if (focused) {
-            try self.rowRaw(A.yellow);
-            const room = self.iw -| self.row_used -| 1;
-            try self.rowTxt(tailFit(value, room));
-            try self.rowRaw(A.reset ++ A.rev);
-            try self.rowTxt(" ");
-            try self.rowRaw(A.reset);
+            try self.rowEditText(value, pos);
         } else if (value.len > 0) {
             try self.rowTxt(value);
         } else {
@@ -1689,9 +1758,12 @@ const App = struct {
     fn renderStatus(self: *App) !void {
         // 保存节点模式: 状态栏变为名称输入框
         if (self.mode == .save_node) {
-            try self.emit(" " ++ A.bcyan ++ "保存节点，名称: " ++ A.reset ++ A.yellow);
-            try self.emit(tailFit(self.edit.items, self.w_total -| 22));
-            try self.emit(A.reset ++ A.rev ++ " " ++ A.reset ++ EOL);
+            try self.emit(" " ++ A.bcyan ++ "保存节点，名称: " ++ A.reset);
+            self.rowBegin();
+            self.row_used = 18; // 前缀占用的列数
+            try self.rowEditText(self.edit.items, self.edit_pos);
+            try self.frame.appendSlice(self.allocator, self.row.items);
+            try self.emit(A.reset ++ EOL);
             return;
         }
         const color = switch (self.status_kind) {
@@ -1716,11 +1788,11 @@ const App = struct {
             .edit_field => if (self.detailTarget() != .alias and self.edit_field == protocol_field)
                 " ←→ 切换协议 (http/https/socks5/socks4) · Enter 保存 · Esc 取消"
             else
-                " 输入新值 · Enter 保存 · Esc 取消 · Ctrl+U 清空",
+                " 输入新值 · ←→ 移动光标 · Enter 保存 · Esc 取消 · Ctrl+U 清空",
             .edit_alias_plats => " 空格 勾选平台 (可多选) · ←→ 移动 · Enter 保存 · Esc 取消",
             .add_alias => " 空格 勾选平台(可多选) · ←→ 移动 · Enter 下一步/保存 · Esc 返回",
             .confirm_delete, .confirm_del_node => " y 确认删除 · 其他任意键取消",
-            .save_node => " 输入节点名 · Enter 保存 · Esc 取消 · Ctrl+U 清空",
+            .save_node => " 输入节点名 · ←→ 移动光标 · Enter 保存 · Esc 取消 · Ctrl+U 清空",
         };
         try self.emit(A.dim);
         try self.emit(hint[0..term.truncateBytes(hint, self.w_total)]);
@@ -1833,6 +1905,22 @@ fn popCodepoint(list: *std.ArrayList(u8)) void {
     list.shrinkRetainingCapacity(i);
 }
 
+/// 光标向前一个码点的字节偏移。
+fn cpPrev(s: []const u8, pos: usize) usize {
+    if (pos == 0) return 0;
+    var i = pos - 1;
+    while (i > 0 and (s[i] & 0xC0) == 0x80) i -= 1;
+    return i;
+}
+
+/// 光标向后一个码点的字节偏移。
+fn cpNext(s: []const u8, pos: usize) usize {
+    if (pos >= s.len) return s.len;
+    var i = pos + 1;
+    while (i < s.len and (s[i] & 0xC0) == 0x80) i += 1;
+    return i;
+}
+
 /// 输入过长时显示尾部: 返回宽度不超过 max_width 的最长后缀。
 fn tailFit(s: []const u8, max_width: usize) []const u8 {
     var start: usize = 0;
@@ -1858,6 +1946,18 @@ test "popCodepoint 按码点删除" {
     popCodepoint(&list);
     try std.testing.expectEqualStrings("", list.items);
     popCodepoint(&list); // 空列表安全
+}
+
+test "光标码点导航" {
+    const s = "a中b";
+    try std.testing.expectEqual(@as(usize, 1), cpNext(s, 0));
+    try std.testing.expectEqual(@as(usize, 4), cpNext(s, 1)); // 跳过"中"的 3 字节
+    try std.testing.expectEqual(@as(usize, 5), cpNext(s, 4));
+    try std.testing.expectEqual(@as(usize, 5), cpNext(s, 5)); // 末尾停住
+    try std.testing.expectEqual(@as(usize, 4), cpPrev(s, 5));
+    try std.testing.expectEqual(@as(usize, 1), cpPrev(s, 4));
+    try std.testing.expectEqual(@as(usize, 0), cpPrev(s, 1));
+    try std.testing.expectEqual(@as(usize, 0), cpPrev(s, 0)); // 开头停住
 }
 
 test "renderFrame 输出行数恰好等于终端高度" {
