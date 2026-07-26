@@ -817,18 +817,16 @@ const App = struct {
             try self.rowPadTo(14);
 
             if (editing and i == protocol_field) {
-                // 二选一: 当前项反色高亮
+                // 协议选项: 当前项反色高亮。紧凑排列，最窄布局下也放得下
                 for (protocol_options, 0..) |opt, oi| {
+                    if (oi > 0) try self.rowTxt(" ");
                     if (oi == self.edit_opt) {
                         try self.rowRaw(A.rev);
                     } else {
                         try self.rowRaw(A.dim);
                     }
-                    try self.rowTxt(" ");
                     try self.rowTxt(opt);
-                    try self.rowTxt(" ");
                     try self.rowRaw(A.reset);
-                    try self.rowTxt("  ");
                 }
             } else if (editing) {
                 try self.rowRaw(A.yellow);
@@ -1285,6 +1283,7 @@ test "同名同命令的别名跨平台合并为一个分组" {
 test {
     _ = term;
 }
+
 
 
 
