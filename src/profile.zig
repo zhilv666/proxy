@@ -221,6 +221,44 @@ pub fn freeEntries(allocator: std.mem.Allocator, entries: []Entry) void {
     allocator.free(entries);
 }
 
+/// 有激活节点时，把当前配置写回该节点 (config set 的写透语义)。
+pub fn syncActive(allocator: std.mem.Allocator) !void {
+    var config = try Config.load(allocator);
+    const node = allocator.dupe(u8, config.node) catch |err| {
+        config.deinit();
+        return err;
+    };
+    config.deinit();
+    defer allocator.free(node);
+    if (node.len == 0) return;
+    try saveCurrent(allocator, node);
+}
+
+/// 重命名节点；若为当前激活节点，同步更新标记。
+pub fn rename(allocator: std.mem.Allocator, old_name: []const u8, new_name: []const u8) !void {
+    if (new_name.len == 0) return error.InvalidNodeName;
+    if (std.mem.eql(u8, old_name, new_name)) return;
+
+    var parsed = try loadProfiles(allocator);
+    defer parsed.deinit();
+    if (parsed.value != .object) return error.NodeNotFound;
+    if (parsed.value.object.get(new_name) != null) return error.NameExists;
+    const entry = parsed.value.object.get(old_name) orelse return error.NodeNotFound;
+
+    const arena = parsed.arena.allocator();
+    try parsed.value.object.put(try arena.dupe(u8, new_name), entry);
+    _ = parsed.value.object.orderedRemove(old_name);
+    try saveProfiles(parsed.value);
+
+    var config = try Config.load(allocator);
+    defer config.deinit();
+    if (std.mem.eql(u8, config.node, old_name)) {
+        if (config.node.len > 0) allocator.free(config.node);
+        config.node = try allocator.dupe(u8, new_name);
+        try Config.store(&config);
+    }
+}
+
 /// 更新节点的单个字段；若为当前激活节点，同步应用到 config。
 pub fn update(allocator: std.mem.Allocator, name: []const u8, key: []const u8, value: []const u8) !void {
     var parsed = try loadProfiles(allocator);

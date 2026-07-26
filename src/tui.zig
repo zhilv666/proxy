@@ -294,7 +294,8 @@ const App = struct {
     fn detailFieldCount(self: *const App) usize {
         return switch (self.detailTarget()) {
             .alias => if (self.groups.len == 0) 0 else 3,
-            else => fields.len,
+            .node => fields.len + 1, // 首行为节点名称
+            .config => fields.len,
         };
     }
 
@@ -544,12 +545,24 @@ const App = struct {
         switch (self.detailTarget()) {
             .config, .node => {
                 self.edit_field = self.detail_cursor;
-                const cur = if (self.detailTarget() == .config)
-                    self.fieldValue(self.detail_cursor)
-                else
-                    self.nodeFieldValue(self.node_cursor - 1, self.detail_cursor);
+                const is_node = self.detailTarget() == .node;
 
-                if (self.detail_cursor == protocol_field) {
+                // 节点详情首行是名称
+                if (is_node and self.detail_cursor == 0) {
+                    self.edit.clearRetainingCapacity();
+                    try self.edit.appendSlice(self.allocator, self.nodes[self.node_cursor - 1].name);
+                    self.mode = .edit_field;
+                    self.setStatus(.info, "编辑节点名称", .{});
+                    return;
+                }
+
+                const fi = if (is_node) self.detail_cursor - 1 else self.detail_cursor;
+                const cur = if (is_node)
+                    self.nodeFieldValue(self.node_cursor - 1, fi)
+                else
+                    self.fieldValue(fi);
+
+                if (fi == protocol_field) {
                     self.edit_opt = 0;
                     for (protocol_options, 0..) |opt, oi| {
                         if (std.mem.eql(u8, cur, opt)) self.edit_opt = oi;
@@ -561,7 +574,7 @@ const App = struct {
                 self.edit.clearRetainingCapacity();
                 try self.edit.appendSlice(self.allocator, cur);
                 self.mode = .edit_field;
-                self.setStatus(.info, "编辑 {s}，留空保存则恢复默认", .{fields[self.detail_cursor].label});
+                self.setStatus(.info, "编辑 {s}，留空保存则恢复默认", .{fields[fi].label});
             },
             .alias => {
                 if (self.groups.len == 0) {
@@ -602,7 +615,12 @@ const App = struct {
 
     fn handleEditField(self: *App, key: term.Key) !void {
         const target = self.detailTarget();
-        if (target != .alias and self.edit_field == protocol_field) {
+        const is_protocol = switch (target) {
+            .config => self.edit_field == protocol_field,
+            .node => self.edit_field == protocol_field + 1,
+            .alias => false,
+        };
+        if (is_protocol) {
             return self.handleEditProtocol(key);
         }
         switch (key) {
@@ -613,8 +631,10 @@ const App = struct {
             .enter => try self.commitFieldEdit(),
             .backspace => popCodepoint(&self.edit),
             .char => |c| {
-                // 别名名称按空格分词解析，不允许空格
-                if (target == .alias and self.edit_field == 0 and c == ' ') return;
+                // 别名名称/节点名称按空格分词解析或作为键名，不允许空格
+                const no_space = self.edit_field == 0 and
+                    (target == .alias or target == .node);
+                if (no_space and c == ' ') return;
                 try self.appendCp(&self.edit, c);
             },
             .ctrl => |c| switch (c) {
@@ -666,7 +686,13 @@ const App = struct {
                             self.setStatus(.err, "保存失败: {s}", .{@errorName(err)});
                             return;
                         };
-                        self.setStatus(.ok, "✓ Protocol 已设为 {s}", .{value});
+                        // 写透: 有激活节点时同步写回该节点
+                        Profile.syncActive(self.allocator) catch {};
+                        if (self.config.node.len > 0) {
+                            self.setStatus(.ok, "✓ Protocol 已设为 {s} · 已同步节点 {s}", .{ value, self.config.node });
+                        } else {
+                            self.setStatus(.ok, "✓ Protocol 已设为 {s}", .{value});
+                        }
                     },
                 }
                 self.mode = .normal;
@@ -680,7 +706,51 @@ const App = struct {
         const value = std.mem.trim(u8, self.edit.items, " \t");
 
         switch (self.detailTarget()) {
-            .config, .node => {
+            .node => {
+                const node = self.nodes[self.node_cursor - 1];
+
+                // 首行: 重命名节点
+                if (self.edit_field == 0) {
+                    if (value.len == 0) {
+                        self.setStatus(.err, "节点名不能为空", .{});
+                        return;
+                    }
+                    Profile.rename(self.allocator, node.name, value) catch |err| {
+                        if (err == error.NameExists) {
+                            self.setStatus(.err, "已存在同名节点: {s}", .{value});
+                        } else {
+                            self.mode = .normal;
+                            self.setStatus(.err, "重命名失败: {s}", .{@errorName(err)});
+                        }
+                        return;
+                    };
+                    self.mode = .normal;
+                    self.setStatus(.ok, "✓ 节点已重命名为 {s}", .{value});
+                    self.reload();
+                    for (self.nodes, 0..) |n, i| {
+                        if (std.mem.eql(u8, n.name, value)) self.node_cursor = i + 1;
+                    }
+                    return;
+                }
+
+                const f = fields[self.edit_field - 1];
+                if (std.mem.eql(u8, f.key, "port") and value.len > 0) {
+                    const port = std.fmt.parseInt(u16, value, 10) catch 0;
+                    if (port == 0) {
+                        self.setStatus(.err, "端口必须是 1-65535 的数字", .{});
+                        return;
+                    }
+                }
+                Profile.update(self.allocator, node.name, f.key, value) catch |err| {
+                    self.mode = .normal;
+                    self.setStatus(.err, "保存失败: {s}", .{@errorName(err)});
+                    return;
+                };
+                self.setStatus(.ok, "✓ 节点 {s} 的 {s} 已更新", .{ node.name, f.label });
+                self.mode = .normal;
+                self.reload();
+            },
+            .config => {
                 const f = fields[self.edit_field];
                 if (std.mem.eql(u8, f.key, "port") and value.len > 0) {
                     const port = std.fmt.parseInt(u16, value, 10) catch 0;
@@ -689,25 +759,19 @@ const App = struct {
                         return;
                     }
                 }
-                if (self.detailTarget() == .node) {
-                    const node = self.nodes[self.node_cursor - 1];
-                    Profile.update(self.allocator, node.name, f.key, value) catch |err| {
-                        self.mode = .normal;
-                        self.setStatus(.err, "保存失败: {s}", .{@errorName(err)});
-                        return;
-                    };
-                    self.setStatus(.ok, "✓ 节点 {s} 的 {s} 已更新", .{ node.name, f.label });
+                Config.set(self.allocator, f.key, value) catch |err| {
+                    self.mode = .normal;
+                    self.setStatus(.err, "保存失败: {s}", .{@errorName(err)});
+                    return;
+                };
+                // 写透: 有激活节点时同步写回该节点
+                Profile.syncActive(self.allocator) catch {};
+                if (self.config.node.len > 0) {
+                    self.setStatus(.ok, "✓ {s} 已更新 · 已同步节点 {s}", .{ f.label, self.config.node });
+                } else if (value.len > 0) {
+                    self.setStatus(.ok, "✓ {s} 已更新", .{f.label});
                 } else {
-                    Config.set(self.allocator, f.key, value) catch |err| {
-                        self.mode = .normal;
-                        self.setStatus(.err, "保存失败: {s}", .{@errorName(err)});
-                        return;
-                    };
-                    if (value.len > 0) {
-                        self.setStatus(.ok, "✓ {s} 已更新", .{f.label});
-                    } else {
-                        self.setStatus(.ok, "✓ {s} 已恢复默认", .{f.label});
-                    }
+                    self.setStatus(.ok, "✓ {s} 已恢复默认", .{f.label});
                 }
                 self.mode = .normal;
                 self.reload();
@@ -1061,16 +1125,16 @@ const App = struct {
             try self.renderAddModal();
         } else {
             var nh: usize = 0;
-            if (size.h >= 22) {
+            if (size.h >= 23) {
                 const node_rows: usize = @min(self.nodes.len + 1, 3);
                 try self.renderNodeList(node_rows);
                 nh = node_rows + 2;
             }
-            // 3 头部 + nh 节点 + (2+avail) 别名 + 7 详情 + 2 状态/快捷键 = h
-            const fixed = 14 + nh;
+            // 3 头部 + nh 节点 + (2+avail) 别名 + 8 详情 + 2 状态/快捷键 = h
+            const fixed = 15 + nh;
             const avail = if (size.h > fixed) size.h - fixed else 1;
             try self.renderAliasList(avail);
-            try self.renderDetail(5);
+            try self.renderDetail(6);
         }
 
         try self.renderStatus();
@@ -1344,14 +1408,17 @@ const App = struct {
             .config => {
                 for (fields, 0..) |f, i| {
                     if (used >= rows) break;
-                    try self.detailFieldRow(f, self.fieldValue(i), i, active);
+                    try self.detailFieldRow(f, self.fieldValue(i), i, i == protocol_field, active);
                     used += 1;
                 }
             },
             .node => {
+                const nidx = self.node_cursor - 1;
+                try self.aliasTextRow(0, "名称", self.nodes[nidx].name, active);
+                used = 1;
                 for (fields, 0..) |f, i| {
                     if (used >= rows) break;
-                    try self.detailFieldRow(f, self.nodeFieldValue(self.node_cursor - 1, i), i, active);
+                    try self.detailFieldRow(f, self.nodeFieldValue(nidx, i), i + 1, i == protocol_field, active);
                     used += 1;
                 }
             },
@@ -1391,7 +1458,8 @@ const App = struct {
     }
 
     /// 配置/节点详情的单个字段行 (含行内编辑与协议选项渲染)。
-    fn detailFieldRow(self: *App, f: Field, value: []const u8, i: usize, active: bool) !void {
+    /// i 为详情面板内的行号 (节点详情因首行名称而偏移 1)。
+    fn detailFieldRow(self: *App, f: Field, value: []const u8, i: usize, is_protocol: bool, active: bool) !void {
         const selected = active and self.detail_cursor == i;
         const editing = self.panel == .detail and self.mode == .edit_field and
             self.edit_field == i;
@@ -1402,7 +1470,7 @@ const App = struct {
         try self.rowTxt(f.label);
         try self.rowPadTo(14);
 
-        if (editing and i == protocol_field) {
+        if (editing and is_protocol) {
             // 协议选项: 空间够则平铺，不够退化为紧凑切换器，永不破版
             var need: usize = protocol_options.len - 1;
             for (protocol_options) |opt| need += opt.len;
@@ -1436,7 +1504,7 @@ const App = struct {
             if (value.len == 0) {
                 if (!selected) try self.rowRaw(A.dim);
                 try self.rowTxt(f.empty_hint);
-            } else if (i == 4) {
+            } else if (std.mem.eql(u8, f.key, "password")) {
                 try self.rowTxt("••••••");
             } else {
                 if (!selected) try self.rowRaw(A.bwhite);

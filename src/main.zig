@@ -113,7 +113,15 @@ fn handleConfig(allocator: std.mem.Allocator, args: []const []const u8) !void {
             return;
         }
         try Config.set(allocator, args[1], args[2]);
-        output.print("配置已保存: {s} = {s}\n", .{ args[1], args[2] });
+        // 有激活节点时写透: 同步写回该节点
+        try Profile.syncActive(allocator);
+        var cfg = try Config.load(allocator);
+        defer cfg.deinit();
+        if (cfg.node.len > 0) {
+            output.print("配置已保存: {s} = {s} (已同步到节点 {s})\n", .{ args[1], args[2], cfg.node });
+        } else {
+            output.print("配置已保存: {s} = {s}\n", .{ args[1], args[2] });
+        }
     } else if (std.mem.eql(u8, subcommand, "get")) {
         if (args.len < 2) {
             output.print("错误: 需要提供 key\n用法: proxy config get <key>\n", .{});
@@ -274,6 +282,20 @@ fn handleNode(allocator: std.mem.Allocator, args: []const []const u8) !void {
             return err;
         };
         output.print("✓ 节点已删除: {s}\n", .{args[1]});
+    } else if (std.mem.eql(u8, subcommand, "rename") or std.mem.eql(u8, subcommand, "mv")) {
+        if (args.len < 3) {
+            output.print("错误: 需要提供旧名与新名\n用法: proxy node rename <旧名> <新名>\n", .{});
+            return;
+        }
+        Profile.rename(allocator, args[1], args[2]) catch |err| {
+            switch (err) {
+                error.NodeNotFound => output.print("错误: 节点不存在: {s}\n", .{args[1]}),
+                error.NameExists => output.print("错误: 已存在同名节点: {s}\n", .{args[2]}),
+                else => return err,
+            }
+            return;
+        };
+        output.print("✓ 节点已重命名: {s} → {s}\n", .{ args[1], args[2] });
     } else if (std.mem.eql(u8, subcommand, "list")) {
         try Profile.list(allocator);
     } else {
@@ -291,8 +313,12 @@ fn printNodeHelp() void {
         \\
         \\子命令:
         \\  save <名称>         把当前配置保存为节点 (同名覆盖)
+        \\  rename <旧> <新>    重命名节点
         \\  remove <名称>       删除节点
         \\  list                列出所有节点 (proxy node 不带参数同效)
+        \\
+        \\说明:
+        \\  切换到节点后，proxy config set 会直接同步写回该节点
         \\
         \\切换节点:
         \\  proxy switch <名称>

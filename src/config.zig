@@ -170,13 +170,7 @@ pub fn set(allocator: std.mem.Allocator, key: []const u8, value: []const u8) !vo
         return error.UnknownConfigKey;
     }
 
-    // 手动改过配置后，当前内容不再对应已保存的节点，清除标记
-    if (config.node.len > 0) {
-        allocator.free(config.node);
-        config.node = "";
-    }
-
-    // Save config
+    // Save config (有激活节点时由调用方通过 Profile.syncActive 写回节点)
     try save(&config);
 }
 
