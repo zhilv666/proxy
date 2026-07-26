@@ -17,16 +17,17 @@ PREV="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
 RANGE="${PREV:+${PREV}..}${TAG}"
 DATE="$(git log -1 --format=%ad --date=short "${TAG}")"
 
-# 按前缀归类提交 (feat/fix/docs/其他)，兼容 "✨ feat(...)" 这类 emoji 前缀
+# 按前缀归类提交 (feat/fix/docs/其他)，兼容 "✨ feat(...)" 这类 emoji 前缀。
+# LC_ALL=C 让 grep 按字节匹配，四字节 emoji 在部分环境的 UTF-8 字符类下会匹配失败。
 collect() {
     local pattern="$1"
-    git log --no-merges --pretty='%s (%h)' "${RANGE}" | grep -E "^([^ ]+ )?${pattern}" | sed 's/^/- /' || true
+    git log --no-merges --pretty='%s (%h)' "${RANGE}" | LC_ALL=C grep -E "^([^ ]+ )?${pattern}" | sed 's/^/- /' || true
 }
 
 FEAT="$(collect 'feat')"
 FIX="$(collect '(fix|bugfix|hotfix)')"
 DOCS="$(collect '(docs|doc)')"
-OTHER="$(git log --no-merges --pretty='%s (%h)' "${RANGE}" | grep -Ev '^([^ ]+ )?(feat|fix|bugfix|hotfix|docs|doc)' | sed 's/^/- /' || true)"
+OTHER="$(git log --no-merges --pretty='%s (%h)' "${RANGE}" | LC_ALL=C grep -Ev '^([^ ]+ )?(feat|fix|bugfix|hotfix|docs|doc)' | sed 's/^/- /' || true)"
 
 NOTES="## [${VERSION}] - ${DATE}"
 append_section() {
