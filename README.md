@@ -1,389 +1,312 @@
-# Proxy CLI Tool
+# proxy
 
-一个用 Zig 编写的跨平台代理工具，支持命令别名和配置管理。
+[![Release](https://img.shields.io/github/v/release/zhilv666/proxy)](https://github.com/zhilv666/proxy/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Zig](https://img.shields.io/badge/zig-0.15.2-orange)
 
-## 功能特性
-
-- ✅ 跨平台支持 (Windows/Linux/macOS)
-- ✅ 配置管理 (host/port/protocol/user/password)
-- ✅ 命令别名系统 (支持平台特定别名)
-- ✅ 环境变量配置 (PROXY_HOME)
-- ✅ 自动检测并展开别名
-- ✅ 支持认证代理 (URL 编码)
-- ✅ 零依赖，纯 Zig 实现
-
-## 编译
+用 Zig 编写的跨平台代理命令行工具：一条命令带代理执行，内置全屏 TUI、命令别名和连通性检测。
 
 ```bash
-# Debug 模式
-zig build
-
-# Release 模式 (推荐)
-zig build -Doptimize=ReleaseFast
-
-# 其他优化选项
-zig build -Doptimize=ReleaseSafe    # 带安全检查的优化
-zig build -Doptimize=ReleaseSmall   # 体积最小化
+proxy curl https://google.com     # 带代理执行任意命令
+proxy tui                         # 全屏交互式配置界面
+proxy status                      # 检测代理连通性与延迟
 ```
 
-编译后的可执行文件位于 `zig-out/bin/proxy` (或 `proxy.exe` on Windows)
+**核心特性**
+
+- 🚀 零依赖单文件，Windows / Linux / macOS 全平台
+- 🖥️ 全屏 TUI：方向键导航、行内编辑、宽屏双栏自适应布局
+- 🔗 http / https / socks5 / socks4 四种代理协议
+- 📡 内置 TCP / HTTP Ping：实时查看代理连通性和响应延迟
+- 🏷️ 命令别名系统，支持平台特定别名与跨平台合并显示
+- 🔐 认证代理支持（用户名密码自动 URL 编码）
+
+## 安装
+
+从 [Releases](https://github.com/zhilv666/proxy/releases) 下载对应平台的压缩包，解压后将 `proxy` 放入 `PATH` 即可。
+
+<details>
+<summary>从源码构建</summary>
+
+需要 [Zig 0.15.2](https://ziglang.org/download/)：
+
+```bash
+git clone https://github.com/zhilv666/proxy.git
+cd proxy
+
+zig build                            # Debug
+zig build -Doptimize=ReleaseFast     # Release (推荐)
+zig build small                      # 体积最小化
+zig build test                       # 运行单元测试
+```
+
+产物位于 `zig-out/bin/proxy`（Windows 为 `proxy.exe`）。非 Debug 构建自动 strip 调试信息，二进制约 250KB~500KB。
+
+</details>
 
 ## 快速开始
 
 ```bash
-# 1. 设置代理配置
+# 1. 配置代理 (或直接 proxy tui 可视化配置)
 proxy config set host 127.0.0.1
 proxy config set port 7890
-proxy config set proto http
 
-# 2. 使用代理执行命令
+# 2. 检测代理是否可用
+proxy status
+
+# 3. 带代理执行命令
 proxy curl https://google.com
+proxy git clone https://github.com/user/repo.git
 
-# 3. 使用内置别名
-proxy ll    # 等同于 ls -l
-proxy la    # 等同于 ls -la
+# 4. 配置别名，少敲几个字
+proxy alias add all gs "git status"
+proxy gs
 ```
 
-## 使用方法
+## 使用文档
 
-### 1. 配置管理
+<details>
+<summary><b>🖥️ TUI 交互界面</b> — <code>proxy tui</code></summary>
 
-```bash
-# 查看所有配置
-proxy config get
+全屏交互式界面，宽屏（≥90 列）自动切换左右双栏布局，窗口缩放实时自适应：
 
-# 输出:
-# 代理配置:
-#   host: 127.0.0.1
-#   port: 7890
-#   proto: http
-#   user: myuser
-#   password: ******
+```
+ PROXY · 跨平台代理配置管理
+ 代理地址 http://127.0.0.1:7890
 
-# 查看单个配置项
-proxy config get host       # 输出: 127.0.0.1
-proxy config get port       # 输出: 7890
-proxy config get proto      # 输出: http
-
-# 设置配置项
-proxy config set host 127.0.0.1
-proxy config set port 7890
-proxy config set proto http           # http 或 https
-proxy config set user myuser
-proxy config set password mypass
+╭─ 配置 ──────────────────────╮ ╭─ 别名 1/3 ─────────────────────────────╮
+│ ▸ Host       127.0.0.1(默认)│ │ ▸ [linux+macos]  gs    → git status    │
+│   Port       7890 (默认)    │ │   [all]          ll    → ls -la        │
+│   ...                       │ │   [windows]      打开  → explorer .    │
+╰─────────────────────────────╯ ╰────────────────────────────────────────╯
 ```
 
-**支持的配置项:**
-- `host` - 代理服务器地址
-- `port` - 代理服务器端口
-- `proto` - 协议 (http/https)
-- `user` - 用户名 (可选)
-- `password` - 密码 (可选)
+| 按键 | 功能 |
+|---|---|
+| `↑↓` / `j k` | 移动光标 |
+| `Tab` | 切换配置 / 别名面板 |
+| `Enter` | 编辑所选项（配置行内编辑；别名编辑命令） |
+| `a` | 添加别名（平台复选框可多选，空格勾选，一次保存到多个平台） |
+| `d` → `y` | 删除所选别名（整组删除） |
+| `r` | 重新加载配置 |
+| `q` / `Esc` | 退出 |
 
-### 2. 别名管理
+- Protocol 为固定选项选择（`←→` 切换），其余字段自由输入，留空保存恢复默认
+- 同名同命令的别名跨平台合并为一行显示，如 `[linux+macos] gs → git status`
+- 勾选 all 或三个系统全选时，自动归并为一条 `all` 记录
+
+</details>
+
+<details>
+<summary><b>📡 连通性检测</b> — <code>proxy status</code> / <code>proxy check</code></summary>
 
 ```bash
-# 列出所有别名
-proxy alias list
-
-# 输出示例:
-# 已配置的别名:
-#   ll         -> ls -l                          (all)
-#   la         -> ls -la                         (all)
-#   l          -> ls -lah                        (all)
-
-# 添加别名
-proxy alias add <platform> <name> <command>
-
-# 示例:
-proxy alias add all ll "ls -l"              # 所有平台
-proxy alias add windows dir "dir /w"        # 仅 Windows
-proxy alias add linux la "ls -la"           # 仅 Linux
-proxy alias add macos l "ls -lah"           # 仅 macOS
-
-# 删除别名
-proxy alias remove <platform> <name>
-
-# 示例:
-proxy alias remove all ll
-proxy alias remove windows dir
+proxy status                          # 默认测试 gstatic generate_204
+proxy check https://www.google.com    # 自定义测试地址
 ```
 
-**支持的平台:**
-- `all` - 所有平台
-- `windows` - Windows 系统
-- `linux` - Linux 系统
-- `macos` - macOS 系统
+输出示例：
 
-### 3. 使用代理执行命令
+```
+代理状态检测
+
+  代理地址   http://127.0.0.1:7890
+  测试地址   http://www.gstatic.com/generate_204
+
+  TCP 连接   ✓ 3/3 成功   延迟 0.17 / 2.88 / 8.25 ms (min/avg/max)
+  HTTP 请求  ✓ HTTP 204   耗时 1218 ms
+
+  代理状态   ✓ 可用
+```
+
+- **TCP 连接**：3 轮连接代理端口测握手延迟，反映代理进程是否存活
+- **HTTP 请求**：真实经代理转发一次请求，反映节点出口是否可用
+  - http 代理：`http://` 地址直接 GET，`https://` 地址走 CONNECT 隧道，支持 Basic 认证
+  - socks5 / socks4(a) 代理：标准握手 + CONNECT
+  - https 代理（与代理本身建 TLS）暂不支持转发检测，仅做 TCP 测试
+- 读写超时 5 秒，代理挂起不会卡死
+
+</details>
+
+<details>
+<summary><b>⚙️ 配置管理</b> — <code>proxy config</code></summary>
 
 ```bash
-# 方式 1: 使用别名 (推荐)
-proxy ll                    # 自动展开为 ls -l
-proxy la                    # 自动展开为 ls -la
+proxy config set <key> <value>    # 设置
+proxy config get <key>            # 查看单项
+proxy config list                 # 查看全部
+```
 
-# 方式 2: 执行任意命令
+| 配置项 | 说明 | 默认值 |
+|---|---|---|
+| `host` | 代理服务器地址 | `127.0.0.1` |
+| `port` | 代理服务器端口 | `7890` |
+| `protocol` | 代理协议 `http` / `https` / `socks5` / `socks4` | `http` |
+| `username` | 用户名（可选，别名 `user`） | 未设置 |
+| `password` | 密码（可选，别名 `pass`） | 未设置 |
+
+```bash
+proxy config set host 192.168.1.1
+proxy config set protocol socks5
+proxy config set username myuser
+proxy config set password 'p@ss:word'    # 特殊字符自动 URL 编码
+```
+
+</details>
+
+<details>
+<summary><b>🏷️ 别名管理</b> — <code>proxy alias</code></summary>
+
+```bash
+proxy alias add <platform> <name> <command>   # 添加
+proxy alias remove <platform> <name>          # 删除
+proxy alias list                              # 列出
+```
+
+平台取值：`all`（所有平台）、`windows`、`linux`、`macos`。执行时优先匹配当前平台的别名，找不到再回退到 `all`。
+
+```bash
+proxy alias add all gs "git status"
+proxy alias add linux update "sudo apt update"
+proxy alias add windows open "explorer ."
+proxy alias add macos open "open ."       # 同名别名可按平台给不同命令
+
+proxy gs          # → git status (带代理环境)
+proxy open        # Windows 上 → explorer . ; macOS 上 → open .
+proxy gs --short  # 追加参数原样传递 → git status --short
+```
+
+</details>
+
+<details>
+<summary><b>🚀 代理执行与环境变量</b></summary>
+
+`proxy <command>` 会为子进程注入以下环境变量后执行：
+
+```
+http_proxy / HTTP_PROXY
+https_proxy / HTTPS_PROXY
+all_proxy / ALL_PROXY
+```
+
+值形如 `http://127.0.0.1:7890`，配置了认证则为 `http://user:pass@host:port`（自动 URL 编码）。
+
+```bash
 proxy curl https://google.com
-proxy wget https://example.com
-proxy git clone https://github.com/user/repo
+proxy git clone https://github.com/user/repo.git
 proxy npm install
 proxy pip install requests
+proxy cargo build
 
-# 方式 3: 在子 shell 中执行
-proxy sh -c 'echo $http_proxy'
-# 输出: http://127.0.0.1:7890
-```
-
-**工作原理:**
-1. 检查第一个参数是否是已配置的别名
-2. 如果是别名，自动展开为完整命令
-3. 设置代理环境变量后执行命令
-
-## 配置文件
-
-### 配置目录
-
-默认配置目录: `~/.proxy/`
-
-自定义配置目录:
-
-```bash
-# Linux/macOS
-export PROXY_HOME=/path/to/config
-
-# Windows (CMD)
-set PROXY_HOME=C:\path\to\config
-
-# Windows (PowerShell)
-$env:PROXY_HOME="C:\path\to\config"
-```
-
-### 配置文件格式
-
-位置: `$PROXY_HOME/config.json` 或 `~/.proxy/config.json`
-
-```json
-{
-  "proxy": {
-    "host": "127.0.0.1",
-    "port": 7890,
-    "proto": "http",
-    "user": "myuser",
-    "pass": "mypass"
-  },
-  "aliases": [
-    {
-      "name": "ll",
-      "command": "ls -l",
-      "platform": "all"
-    },
-    {
-      "name": "la",
-      "command": "ls -la",
-      "platform": "all"
-    },
-    {
-      "name": "dir",
-      "command": "dir /w",
-      "platform": "windows"
-    }
-  ]
-}
-```
-
-### 初始化配置
-
-首次运行 `proxy config set` 或 `proxy alias add` 时会自动创建配置文件。
-
-默认包含以下别名:
-- `ll` → `ls -l` (所有平台)
-- `la` → `ls -la` (所有平台)
-- `l` → `ls -lah` (所有平台)
-
-## 环境变量
-
-执行命令时，自动设置以下环境变量:
-
-```bash
-http_proxy=http://user:pass@host:port
-https_proxy=http://user:pass@host:port
-HTTP_PROXY=http://user:pass@host:port
-HTTPS_PROXY=http://user:pass@host:port
-ALL_PROXY=http://user:pass@host:port
-all_proxy=http://user:pass@host:port
-```
-
-**认证支持:**
-- 用户名和密码会自动进行 URL 编码
-- 支持特殊字符 (如 `@`, `:`, `#` 等)
-
-**验证环境变量:**
-
-```bash
+# 验证环境变量
 proxy sh -c 'env | grep -i proxy'
 ```
 
-## 高级用法
+</details>
 
-### 临时使用不同代理
+<details>
+<summary><b>📁 配置文件</b></summary>
+
+默认目录 `~/.proxy/`，可通过 `PROXY_HOME` 环境变量自定义。
+
+`config.json`：
+
+```json
+{
+  "host": "127.0.0.1",
+  "port": "7890",
+  "protocol": "http",
+  "username": "",
+  "password": ""
+}
+```
+
+`aliases.json`（按平台分组）：
+
+```json
+{
+  "all":     { "gs": "git status" },
+  "windows": { "open": "explorer ." },
+  "macos":   { "open": "open ." }
+}
+```
+
+首次 `config set` / `alias add` 时自动创建。
+
+</details>
+
+<details>
+<summary><b>🔖 版本信息</b> — <code>proxy -v</code></summary>
+
+```
+proxy version 1.2.0
+
+提交哈希: 9bccdac
+构建时间: 2026-07-26 11:22 UTC
+Zig 版本: 0.15.2
+目标平台: x86_64-windows (ReleaseFast)
+```
+
+版本号构建时从 `git describe` 自动获取，也可用 `zig build -Dversion=x.y.z` 手动指定。
+
+</details>
+
+<details>
+<summary><b>🔧 故障排查</b></summary>
+
+**代理连接失败**（`curl: (7) Failed to connect`）
 
 ```bash
-# 修改配置
-proxy config set host 192.168.1.1
-proxy config set port 8080
-
-# 使用新配置
-proxy curl https://google.com
-
-# 恢复原配置
-proxy config set host 127.0.0.1
-proxy config set port 7890
+proxy status              # 先看 TCP 连接是否成功
+proxy config list         # 确认 host/port 配置
 ```
 
-### 平台特定别名
+TCP 失败 → 代理进程没跑或端口不对；TCP 成功但 HTTP 失败 → 节点出口异常或协议选错（如 socks 端口配了 http 协议）。
+
+**HTTP 407** — 代理要求认证，检查 `username` / `password` 配置。
+
+**别名不生效**
 
 ```bash
-# 在 Windows 上
-proxy alias add windows cmd "cmd.exe /c"
-proxy cmd dir
-
-# 在 Linux 上
-proxy alias add linux update "apt update && apt upgrade -y"
-proxy update
-
-# 在 macOS 上
-proxy alias add macos brew "brew update && brew upgrade"
-proxy brew
+proxy alias list          # 确认别名存在且平台匹配当前系统 (或 all)
 ```
 
-### 与其他工具集成
+**TUI 无法启动** — TUI 需要交互式终端，输入/输出被重定向时会直接报错退出。
+
+</details>
+
+<details>
+<summary><b>🛠️ 开发</b></summary>
+
+**项目结构**
+
+```
+├── src/
+│   ├── main.zig        # 入口与命令分发
+│   ├── config.zig      # 配置管理 (JSON 持久化)
+│   ├── alias.zig       # 别名管理
+│   ├── tui.zig         # 全屏 TUI
+│   ├── term.zig        # 跨平台终端层 (原始模式/按键解析/CJK 宽度)
+│   ├── check.zig       # 连通性检测 (TCP/HTTP/SOCKS)
+│   └── output.zig      # Windows UTF-8 输出
+├── examples/           # TUI 演示 (zig build demo)
+├── scripts/            # 测试与 CHANGELOG 生成脚本
+└── .github/workflows/  # 推 tag 自动发布
+```
+
+**常用命令**
 
 ```bash
-# Git
-proxy git clone https://github.com/user/repo.git
-
-# Node.js/NPM
-proxy npm install express
-
-# Python/Pip
-proxy pip install requests
-
-# Go
-proxy go get github.com/user/package
-
-# Cargo
-proxy cargo install ripgrep
+zig build test                                   # 单元测试
+zig build -Dtarget=x86_64-linux                  # 交叉编译
+bash scripts/test.sh                             # 功能测试
+bash scripts/gen-changelog.sh v1.2.0 --notes-only  # 预览更新日志
 ```
 
-## 故障排查
+**发布流程**：提交代码 → `git tag v1.x.y` → `git push origin main --tags`，GitHub Actions 自动生成 CHANGELOG 回写主分支、交叉编译五个平台并创建 Release。
 
-### 1. 配置文件不存在
-
-**症状:** 运行命令时提示找不到配置文件
-
-**解决方法:**
-```bash
-# 初始化配置
-proxy config set host 127.0.0.1
-proxy config set port 7890
-```
-
-### 2. 代理连接失败
-
-**症状:** `curl: (7) Failed to connect`
-
-**检查清单:**
-- 代理服务器是否运行: `netstat -an | grep 7890`
-- 配置是否正确: `proxy config get`
-- 防火墙是否阻止
-
-### 3. 别名不生效
-
-**症状:** 别名未被识别
-
-**解决方法:**
-```bash
-# 检查别名配置
-proxy alias list
-
-# 确保平台匹配
-# 如果在 Windows 上，确保别名平台是 "all" 或 "windows"
-```
-
-### 4. 环境变量未设置
-
-**症状:** `$http_proxy` 为空
-
-**验证:**
-```bash
-proxy sh -c 'echo $http_proxy'
-```
-
-应该输出类似: `http://127.0.0.1:7890`
-
-## 与 Bash 脚本对比
-
-原 Bash 脚本功能:
-```bash
-proxy_on    # 启用代理环境变量
-proxy_off   # 禁用代理环境变量
-proxy cmd   # 使用代理执行命令
-```
-
-新 Zig 工具优势:
-- ✅ 跨平台 (不依赖 Bash)
-- ✅ 持久化配置 (无需每次重新设置)
-- ✅ 别名系统 (平台特定支持)
-- ✅ 更快的启动速度
-- ✅ 内存安全 (无内存泄漏)
-- ✅ 单个可执行文件
-
-## 开发
-
-### 技术栈
-- 语言: Zig 0.15.1
-- 标准库: std
-- JSON 解析: std.json
-- 进程管理: std.process
-- 文件系统: std.fs
-
-### 项目结构
-```
-.
-├── build.zig          # 构建配置
-├── proxy.zig          # 主程序
-├── config.zig         # 配置管理模块
-└── README.md          # 文档
-```
-
-### 测试
-
-```bash
-# 编译
-zig build
-
-# 测试配置管理
-./zig-out/bin/proxy config get
-./zig-out/bin/proxy config set host 127.0.0.1
-
-# 测试别名
-./zig-out/bin/proxy alias list
-./zig-out/bin/proxy alias add all test "echo test"
-./zig-out/bin/proxy test
-
-# 测试代理执行
-./zig-out/bin/proxy curl ifconfig.me
-./zig-out/bin/proxy ll
-```
+</details>
 
 ## 许可证
 
-MIT License - 自由使用、修改和分发
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-## 致谢
-
-基于原 Bash 脚本重写，使用现代系统编程语言 Zig 实现。
+[MIT](LICENSE)
