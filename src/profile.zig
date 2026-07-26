@@ -161,13 +161,24 @@ pub fn remove(allocator: std.mem.Allocator, name: []const u8) !void {
     }
 }
 
-/// 单个节点记录 (显示用有效值，未设置的字段取默认)，调用方用 freeEntries 释放。
+/// 单个节点记录 (原始值，未设置的字段为空串)，调用方用 freeEntries 释放。
 pub const Entry = struct {
     name: []const u8,
     host: []const u8,
     port: []const u8,
     protocol: []const u8,
+    username: []const u8,
+    password: []const u8,
 };
+
+fn freeEntry(allocator: std.mem.Allocator, e: Entry) void {
+    allocator.free(e.name);
+    allocator.free(e.host);
+    allocator.free(e.port);
+    allocator.free(e.protocol);
+    allocator.free(e.username);
+    allocator.free(e.password);
+}
 
 /// 读取全部节点为数组，供 TUI 等程序化访问。
 pub fn getAll(allocator: std.mem.Allocator) ![]Entry {
@@ -176,12 +187,7 @@ pub fn getAll(allocator: std.mem.Allocator) ![]Entry {
 
     var result: std.ArrayList(Entry) = .{};
     errdefer {
-        for (result.items) |e| {
-            allocator.free(e.name);
-            allocator.free(e.host);
-            allocator.free(e.port);
-            allocator.free(e.protocol);
-        }
+        for (result.items) |e| freeEntry(allocator, e);
         result.deinit(allocator);
     }
 
@@ -191,33 +197,47 @@ pub fn getAll(allocator: std.mem.Allocator) ![]Entry {
     while (it.next()) |entry| {
         if (entry.value_ptr.* != .object) continue;
         const obj = entry.value_ptr.object;
-        const name = try allocator.dupe(u8, entry.key_ptr.*);
-        errdefer allocator.free(name);
-        const host = try allocator.dupe(u8, strField(obj, "host", "127.0.0.1"));
-        errdefer allocator.free(host);
-        const port = try allocator.dupe(u8, strField(obj, "port", "7890"));
-        errdefer allocator.free(port);
-        const protocol = try allocator.dupe(u8, strField(obj, "protocol", "http"));
-        errdefer allocator.free(protocol);
-        try result.append(allocator, .{
-            .name = name,
-            .host = host,
-            .port = port,
-            .protocol = protocol,
-        });
+        var e: Entry = undefined;
+        e.name = try allocator.dupe(u8, entry.key_ptr.*);
+        errdefer allocator.free(e.name);
+        e.host = try allocator.dupe(u8, strField(obj, "host", ""));
+        errdefer allocator.free(e.host);
+        e.port = try allocator.dupe(u8, strField(obj, "port", ""));
+        errdefer allocator.free(e.port);
+        e.protocol = try allocator.dupe(u8, strField(obj, "protocol", ""));
+        errdefer allocator.free(e.protocol);
+        e.username = try allocator.dupe(u8, strField(obj, "username", ""));
+        errdefer allocator.free(e.username);
+        e.password = try allocator.dupe(u8, strField(obj, "password", ""));
+        errdefer allocator.free(e.password);
+        try result.append(allocator, e);
     }
 
     return result.toOwnedSlice(allocator);
 }
 
 pub fn freeEntries(allocator: std.mem.Allocator, entries: []Entry) void {
-    for (entries) |e| {
-        allocator.free(e.name);
-        allocator.free(e.host);
-        allocator.free(e.port);
-        allocator.free(e.protocol);
-    }
+    for (entries) |e| freeEntry(allocator, e);
     allocator.free(entries);
+}
+
+/// 更新节点的单个字段；若为当前激活节点，同步应用到 config。
+pub fn update(allocator: std.mem.Allocator, name: []const u8, key: []const u8, value: []const u8) !void {
+    var parsed = try loadProfiles(allocator);
+    defer parsed.deinit();
+    if (parsed.value != .object) return error.NodeNotFound;
+    const entry = parsed.value.object.getPtr(name) orelse return error.NodeNotFound;
+    if (entry.* != .object) return error.NodeNotFound;
+
+    const arena = parsed.arena.allocator();
+    try entry.object.put(try arena.dupe(u8, key), .{ .string = try arena.dupe(u8, value) });
+    try saveProfiles(parsed.value);
+
+    var config = try Config.load(allocator);
+    defer config.deinit();
+    if (std.mem.eql(u8, config.node, name)) {
+        try switchTo(allocator, name);
+    }
 }
 
 /// 列出所有节点，标记当前激活的。
