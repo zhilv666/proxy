@@ -91,8 +91,17 @@ pub fn run(allocator: std.mem.Allocator) !void {
     app.reload();
 
     var input = term.Input.init(&tty);
+    var last_size = tty.size();
     while (app.running) {
         try app.render();
+        // 等待按键；空闲时轮询窗口尺寸，缩放后立即重绘自适应
+        while (!input.hasBuffered() and !tty.pollInput(200)) {
+            const now = tty.size();
+            if (now.w != last_size.w or now.h != last_size.h) {
+                last_size = now;
+                try app.render();
+            }
+        }
         const key = input.next() catch break;
         try app.handleKey(key);
     }
@@ -817,16 +826,26 @@ const App = struct {
             try self.rowPadTo(14);
 
             if (editing and i == protocol_field) {
-                // 协议选项: 当前项反色高亮。紧凑排列，最窄布局下也放得下
-                for (protocol_options, 0..) |opt, oi| {
-                    if (oi > 0) try self.rowTxt(" ");
-                    if (oi == self.edit_opt) {
-                        try self.rowRaw(A.rev);
-                    } else {
-                        try self.rowRaw(A.dim);
+                // 协议选项: 空间够则平铺，不够退化为紧凑切换器，永不破版
+                var need: usize = protocol_options.len - 1;
+                for (protocol_options) |opt| need += opt.len;
+                if (self.iw -| self.row_used >= need) {
+                    for (protocol_options, 0..) |opt, oi| {
+                        if (oi > 0) try self.rowTxt(" ");
+                        if (oi == self.edit_opt) {
+                            try self.rowRaw(A.rev);
+                        } else {
+                            try self.rowRaw(A.dim);
+                        }
+                        try self.rowTxt(opt);
+                        try self.rowRaw(A.reset);
                     }
-                    try self.rowTxt(opt);
-                    try self.rowRaw(A.reset);
+                } else {
+                    try self.optionCycler(
+                        protocol_options[self.edit_opt],
+                        self.edit_opt,
+                        protocol_options.len,
+                    );
                 }
             } else if (editing) {
                 try self.rowRaw(A.yellow);
@@ -984,20 +1003,37 @@ const App = struct {
         try self.rowTxt("平台");
         try self.rowPadTo(10);
         if (on_platform) {
-            for (platforms, 0..) |p, i| {
-                const focused = i == self.add_plat_cursor;
-                const checked = self.add_selected[i];
-                if (focused) {
-                    try self.rowRaw(A.rev);
-                } else if (checked) {
-                    try self.rowRaw(A.green);
-                } else {
-                    try self.rowRaw(A.dim);
+            // 空间够则平铺全部复选框，不够退化为逐项切换器
+            var need: usize = (platforms.len - 1) * 2;
+            for (platforms) |p| need += 4 + p.len;
+            if (self.iw -| self.row_used >= need) {
+                for (platforms, 0..) |p, i| {
+                    const focused = i == self.add_plat_cursor;
+                    const checked = self.add_selected[i];
+                    if (focused) {
+                        try self.rowRaw(A.rev);
+                    } else if (checked) {
+                        try self.rowRaw(A.green);
+                    } else {
+                        try self.rowRaw(A.dim);
+                    }
+                    try self.rowTxt(if (checked) "[✓] " else "[ ] ");
+                    try self.rowTxt(p);
+                    try self.rowRaw(A.reset);
+                    try self.rowTxt("  ");
                 }
-                try self.rowTxt(if (checked) "[✓] " else "[ ] ");
-                try self.rowTxt(p);
+            } else {
+                var label_buf: [40]u8 = undefined;
+                const label = std.fmt.bufPrint(&label_buf, "{s} {s}", .{
+                    if (self.add_selected[self.add_plat_cursor]) "[✓]" else "[ ]",
+                    platforms[self.add_plat_cursor],
+                }) catch platforms[self.add_plat_cursor];
+                try self.optionCycler(label, self.add_plat_cursor, platforms.len);
+                try self.rowRaw(A.dim);
+                var cnt_buf: [24]u8 = undefined;
+                const cnt = std.fmt.bufPrint(&cnt_buf, "  已选 {d}", .{self.selectedCount()}) catch "";
+                try self.rowTxt(cnt);
                 try self.rowRaw(A.reset);
-                try self.rowTxt("  ");
             }
         } else if (self.selectedCount() == 0) {
             try self.rowRaw(A.dim);
@@ -1017,6 +1053,20 @@ const App = struct {
         try self.inputRow("命令", self.add_cmd.items, self.add_step == .command);
 
         try self.boxBottom(true);
+    }
+
+    /// 紧凑选项切换器: "◂ 当前项 ▸ 2/4"。选项平铺放不下时的通用退化形态。
+    fn optionCycler(self: *App, current: []const u8, index: usize, total: usize) !void {
+        try self.rowRaw(A.dim);
+        try self.rowTxt("◂ ");
+        try self.rowRaw(A.reset ++ A.rev);
+        try self.rowTxt(current);
+        try self.rowRaw(A.reset ++ A.dim);
+        try self.rowTxt(" ▸ ");
+        var idx_buf: [16]u8 = undefined;
+        const idx = std.fmt.bufPrint(&idx_buf, "{d}/{d}", .{ index + 1, total }) catch "";
+        try self.rowTxt(idx);
+        try self.rowRaw(A.reset);
     }
 
     fn inputRow(self: *App, label: []const u8, value: []const u8, focused: bool) !void {
@@ -1283,6 +1333,7 @@ test "同名同命令的别名跨平台合并为一个分组" {
 test {
     _ = term;
 }
+
 
 
 

@@ -132,6 +132,21 @@ pub const Terminal = struct {
         return try std.posix.read(self.in, buf);
     }
 
+    /// 等待输入，最多 timeout_ms 毫秒。返回是否有输入可读。
+    /// 用于空闲时轮询窗口尺寸变化 (终端没有跨平台的 resize 事件)。
+    pub fn pollInput(self: *const Terminal, timeout_ms: u32) bool {
+        if (is_windows) {
+            return windows.kernel32.WaitForSingleObject(self.in, timeout_ms) == windows.WAIT_OBJECT_0;
+        }
+        var fds = [_]std.posix.pollfd{.{
+            .fd = self.in,
+            .events = std.posix.POLL.IN,
+            .revents = 0,
+        }};
+        const n = std.posix.poll(&fds, @intCast(timeout_ms)) catch return true;
+        return n > 0;
+    }
+
     pub fn size(self: *const Terminal) Size {
         if (is_windows) {
             var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
@@ -180,6 +195,11 @@ pub const Input = struct {
 
     pub fn init(term: *Terminal) Input {
         return .{ .term = term };
+    }
+
+    /// 缓冲区里是否还有未消费的按键 (有则无需再等待输入)。
+    pub fn hasBuffered(self: *const Input) bool {
+        return self.pos < self.len;
     }
 
     pub fn next(self: *Input) !Key {
