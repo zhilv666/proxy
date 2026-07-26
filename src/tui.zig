@@ -698,6 +698,10 @@ const App = struct {
         const url = self.buildDisplayUrl(&url_buf);
         try self.emit(" " ++ A.dim ++ "代理地址 " ++ A.reset ++ A.green);
         try self.emit(url[0..term.truncateBytes(url, self.w_total -| 11)]);
+        if (self.config.node.len > 0) {
+            try self.emit(A.reset ++ A.dim ++ " · 节点 ");
+            try self.emit(self.config.node[0..term.truncateBytes(self.config.node, 16)]);
+        }
         try self.emit(A.reset ++ EOL ++ EOL);
     }
 

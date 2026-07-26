@@ -5,6 +5,7 @@ const Config = @import("config.zig");
 const Alias = @import("alias.zig");
 const Tui = @import("tui.zig");
 const Check = @import("check.zig");
+const Profile = @import("profile.zig");
 const output = @import("output.zig");
 
 pub fn main() !void {
@@ -34,6 +35,10 @@ pub fn main() !void {
         try Tui.run(allocator);
     } else if (std.mem.eql(u8, command, "status") or std.mem.eql(u8, command, "check")) {
         try Check.run(allocator, args[2..]);
+    } else if (std.mem.eql(u8, command, "switch")) {
+        try handleSwitch(allocator, args[2..]);
+    } else if (std.mem.eql(u8, command, "node") or std.mem.eql(u8, command, "nodes")) {
+        try handleNode(allocator, args[2..]);
     } else {
         // Execute command with proxy
         try execWithProxy(allocator, args[1..]);
@@ -70,6 +75,8 @@ fn printHelp() void {
         \\命令:
         \\  config              配置管理
         \\  alias               别名管理
+        \\  node                节点管理 (保存多套代理配置)
+        \\  switch <节点>       一键切换代理节点
         \\  tui                 启动 TUI 界面
         \\  status | check      检测代理连通性与延迟 (可选自定义测试地址)
         \\  <command> [args]    使用代理执行命令
@@ -83,6 +90,8 @@ fn printHelp() void {
         \\  proxy ll
         \\  proxy config set host 127.0.0.1
         \\  proxy alias add windows ll "ls -l"
+        \\  proxy node save dev
+        \\  proxy switch hk
         \\
     ;
     output.print("{s}", .{help});
@@ -212,6 +221,92 @@ fn printAliasHelp() void {
     output.print("{s}", .{help});
 }
 
+fn handleSwitch(allocator: std.mem.Allocator, args: []const []const u8) !void {
+    if (args.len == 0) {
+        try Profile.list(allocator);
+        output.print("\n用法: proxy switch <节点名>\n", .{});
+        return;
+    }
+
+    Profile.switchTo(allocator, args[0]) catch |err| {
+        if (err == error.NodeNotFound) {
+            output.print("错误: 节点不存在: {s}\n\n", .{args[0]});
+            try Profile.list(allocator);
+            return;
+        }
+        return err;
+    };
+
+    var config = try Config.load(allocator);
+    defer config.deinit();
+    const url = try config.buildProxyUrl(allocator);
+    defer allocator.free(url);
+    output.print("✓ 已切换到节点 {s}: {s}\n", .{ args[0], url });
+}
+
+fn handleNode(allocator: std.mem.Allocator, args: []const []const u8) !void {
+    if (args.len == 0) {
+        try Profile.list(allocator);
+        return;
+    }
+
+    const subcommand = args[0];
+
+    if (std.mem.eql(u8, subcommand, "-h") or std.mem.eql(u8, subcommand, "--help")) {
+        printNodeHelp();
+    } else if (std.mem.eql(u8, subcommand, "save") or std.mem.eql(u8, subcommand, "add")) {
+        if (args.len < 2) {
+            output.print("错误: 需要提供节点名\n用法: proxy node save <名称>\n", .{});
+            return;
+        }
+        try Profile.saveCurrent(allocator, args[1]);
+        output.print("✓ 当前配置已保存为节点: {s}\n", .{args[1]});
+    } else if (std.mem.eql(u8, subcommand, "remove") or std.mem.eql(u8, subcommand, "rm")) {
+        if (args.len < 2) {
+            output.print("错误: 需要提供节点名\n用法: proxy node remove <名称>\n", .{});
+            return;
+        }
+        Profile.remove(allocator, args[1]) catch |err| {
+            if (err == error.NodeNotFound) {
+                output.print("错误: 节点不存在: {s}\n", .{args[1]});
+                return;
+            }
+            return err;
+        };
+        output.print("✓ 节点已删除: {s}\n", .{args[1]});
+    } else if (std.mem.eql(u8, subcommand, "list")) {
+        try Profile.list(allocator);
+    } else {
+        output.print("未知的子命令: {s}\n", .{subcommand});
+        printNodeHelp();
+    }
+}
+
+fn printNodeHelp() void {
+    const help =
+        \\proxy node - 节点管理 (保存多套代理配置，一键切换)
+        \\
+        \\用法:
+        \\  proxy node <子命令> [参数...]
+        \\
+        \\子命令:
+        \\  save <名称>         把当前配置保存为节点 (同名覆盖)
+        \\  remove <名称>       删除节点
+        \\  list                列出所有节点 (proxy node 不带参数同效)
+        \\
+        \\切换节点:
+        \\  proxy switch <名称>
+        \\
+        \\示例:
+        \\  proxy config set host 127.0.0.1 && proxy config set port 7890
+        \\  proxy node save dev             # 本地开发代理
+        \\  proxy config set host 10.1.0.8 && proxy node save company
+        \\  proxy switch dev                # 一键切回
+        \\
+    ;
+    output.print("{s}", .{help});
+}
+
 fn execWithProxy(allocator: std.mem.Allocator, args: []const []const u8) !void {
     // Load config
     var config = try Config.load(allocator);
@@ -255,4 +350,6 @@ fn execWithProxy(allocator: std.mem.Allocator, args: []const []const u8) !void {
 test {
     _ = Tui;
     _ = Check;
+    _ = Config;
+    _ = Profile;
 }

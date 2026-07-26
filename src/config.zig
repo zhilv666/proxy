@@ -7,6 +7,8 @@ pub const ConfigData = struct {
     protocol: []const u8,
     username: []const u8,
     password: []const u8,
+    /// 当前激活的代理节点名 (proxy switch 设置)，手动改配置后清空
+    node: []const u8,
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) ConfigData {
@@ -16,6 +18,7 @@ pub const ConfigData = struct {
             .protocol = "",
             .username = "",
             .password = "",
+            .node = "",
             .allocator = allocator,
         };
     }
@@ -26,6 +29,7 @@ pub const ConfigData = struct {
         if (self.protocol.len > 0) self.allocator.free(self.protocol);
         if (self.username.len > 0) self.allocator.free(self.username);
         if (self.password.len > 0) self.allocator.free(self.password);
+        if (self.node.len > 0) self.allocator.free(self.node);
     }
 
     pub fn buildProxyUrl(self: *const ConfigData, allocator: std.mem.Allocator) ![]const u8 {
@@ -134,6 +138,9 @@ pub fn load(allocator: std.mem.Allocator) !ConfigData {
     if (root.get("password")) |password| {
         config.password = try allocator.dupe(u8, password.string);
     }
+    if (root.get("node")) |node| {
+        if (node == .string) config.node = try allocator.dupe(u8, node.string);
+    }
 
     return config;
 }
@@ -163,8 +170,19 @@ pub fn set(allocator: std.mem.Allocator, key: []const u8, value: []const u8) !vo
         return error.UnknownConfigKey;
     }
 
+    // 手动改过配置后，当前内容不再对应已保存的节点，清除标记
+    if (config.node.len > 0) {
+        allocator.free(config.node);
+        config.node = "";
+    }
+
     // Save config
     try save(&config);
+}
+
+/// 整体写入配置 (供节点切换等使用)。
+pub fn store(config: *const ConfigData) !void {
+    try save(config);
 }
 
 pub fn get(allocator: std.mem.Allocator, key: []const u8) !?[]const u8 {
@@ -220,11 +238,12 @@ fn save(config: *const ConfigData) !void {
 
     const writer = buffer.writer(allocator);
     try writer.writeAll("{\n");
-    try writer.print("  \"host\": \"{s}\",\n", .{config.host});
-    try writer.print("  \"port\": \"{s}\",\n", .{config.port});
-    try writer.print("  \"protocol\": \"{s}\",\n", .{config.protocol});
-    try writer.print("  \"username\": \"{s}\",\n", .{config.username});
-    try writer.print("  \"password\": \"{s}\"\n", .{config.password});
+    try writeField(writer, "host", config.host, true);
+    try writeField(writer, "port", config.port, true);
+    try writeField(writer, "protocol", config.protocol, true);
+    try writeField(writer, "username", config.username, true);
+    try writeField(writer, "password", config.password, true);
+    try writeField(writer, "node", config.node, false);
     try writer.writeAll("}\n");
 
     // Write to file
@@ -232,4 +251,39 @@ fn save(config: *const ConfigData) !void {
     defer file.close();
 
     try file.writeAll(buffer.items);
+}
+
+fn writeField(writer: anytype, key: []const u8, value: []const u8, comma: bool) !void {
+    try writer.print("  \"{s}\": ", .{key});
+    try writeJsonString(writer, value);
+    try writer.writeAll(if (comma) ",\n" else "\n");
+}
+
+/// 写出带转义的 JSON 字符串，密码等值里的引号/反斜杠不会写坏配置文件。
+pub fn writeJsonString(writer: anytype, s: []const u8) !void {
+    try writer.writeByte('"');
+    for (s) |c| {
+        switch (c) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            else => {
+                if (c < 0x20) {
+                    try writer.print("\\u{x:0>4}", .{c});
+                } else {
+                    try writer.writeByte(c);
+                }
+            },
+        }
+    }
+    try writer.writeByte('"');
+}
+
+test "writeJsonString 转义引号反斜杠与控制字符" {
+    var buf: std.ArrayList(u8) = .{};
+    defer buf.deinit(std.testing.allocator);
+    try writeJsonString(buf.writer(std.testing.allocator), "a\"b\\c\n中");
+    try std.testing.expectEqualStrings("\"a\\\"b\\\\c\\n中\"", buf.items);
 }

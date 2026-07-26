@@ -17,6 +17,7 @@ proxy status                      # 检测代理连通性与延迟
 - 🚀 零依赖单文件，Windows / Linux / macOS 全平台
 - 🖥️ 全屏 TUI：方向键导航、行内编辑、宽屏双栏自适应布局
 - 🔗 http / https / socks5 / socks4 四种代理协议
+- 🔀 多代理节点：`proxy switch dev` 在公司内网 / 本地开发 / 海外节点间一键切换
 - 📡 内置 TCP / HTTP Ping：实时查看代理连通性和响应延迟
 - 🏷️ 命令别名系统，支持平台特定别名与跨平台合并显示
 - 🔐 认证代理支持（用户名密码自动 URL 编码）
@@ -155,6 +156,44 @@ proxy config set password 'p@ss:word'    # 特殊字符自动 URL 编码
 </details>
 
 <details>
+<summary><b>🔀 多节点切换</b> — <code>proxy switch</code> / <code>proxy node</code></summary>
+
+把多套代理配置保存为命名节点，随时一键切换：
+
+```bash
+# 保存节点: 先配置好，再存名字 (同名覆盖)
+proxy config set host 127.0.0.1
+proxy config set port 7890
+proxy node save dev                # 本地开发代理
+
+proxy config set host 10.1.0.8
+proxy config set port 8080
+proxy node save company            # 公司内网代理
+
+# 一键切换
+proxy switch dev
+# ✓ 已切换到节点 dev: http://127.0.0.1:7890
+
+# 管理
+proxy node list                    # 列出节点，▸ 标记当前
+proxy node remove company          # 删除节点
+```
+
+```
+节点列表:
+
+  ▸ dev         http://127.0.0.1:7890   ← 当前
+    company     http://10.1.0.8:8080
+    hk          socks5://1.2.3.4:1080
+```
+
+- 节点存储于 `~/.proxy/profiles.json`，切换即整体覆盖当前配置
+- `proxy status` 与 TUI 标题栏会显示当前节点名
+- 切换后手动 `config set` 修改配置，视为脱离节点（标记自动清除）
+
+</details>
+
+<details>
 <summary><b>🏷️ 别名管理</b> — <code>proxy alias</code></summary>
 
 ```bash
@@ -231,7 +270,16 @@ proxy sh -c 'env | grep -i proxy'
 }
 ```
 
-首次 `config set` / `alias add` 时自动创建。
+`profiles.json`（代理节点，`proxy node save` 创建）：
+
+```json
+{
+  "dev":     { "host": "127.0.0.1", "port": "7890", "protocol": "http", "username": "", "password": "" },
+  "company": { "host": "10.1.0.8",  "port": "8080", "protocol": "http", "username": "", "password": "" }
+}
+```
+
+首次 `config set` / `alias add` / `node save` 时自动创建。
 
 </details>
 

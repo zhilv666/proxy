@@ -27,6 +27,9 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
     output.print("代理状态检测\n\n", .{});
     output.print("  代理地址   {s}\n", .{proxy_url});
+    if (config.node.len > 0) {
+        output.print("  当前节点   {s}\n", .{config.node});
+    }
     output.print("  测试地址   {s}\n\n", .{test_url});
 
     // -- TCP 握手延迟 ------------------------------------------------------
