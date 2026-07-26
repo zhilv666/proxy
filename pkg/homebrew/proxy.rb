@@ -2,26 +2,26 @@
 class Proxy < Formula
   desc "跨平台代理命令行工具 (Zig): 带代理执行、TUI、多节点切换、连通性检测"
   homepage "https://github.com/zhilv666/proxy"
-  version "1.3.0"
+  version "1.3.1"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/zhilv666/proxy/releases/download/v1.3.0/proxy-v1.3.0-aarch64-macos.tar.gz"
-      sha256 "3bffdc430f6c2e485baaf59e7fdebf18725e952861ae8285b54a26f3f1e4f623"
+      url "https://github.com/zhilv666/proxy/releases/download/v1.3.1/proxy-v1.3.1-aarch64-macos.tar.gz"
+      sha256 "0b5f11d7202aa042c224c8cc87a204582c21bd0226af002f86ca5aa656554a92"
     else
-      url "https://github.com/zhilv666/proxy/releases/download/v1.3.0/proxy-v1.3.0-x86_64-macos.tar.gz"
-      sha256 "98149cb19ab1794f4fe35257190686b52492433b982158db27266e63b9e0cdb4"
+      url "https://github.com/zhilv666/proxy/releases/download/v1.3.1/proxy-v1.3.1-x86_64-macos.tar.gz"
+      sha256 "10ea07a4114ec44dc48891764bd82761a2cafb5a79c39bcefe3200271da4e11e"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/zhilv666/proxy/releases/download/v1.3.0/proxy-v1.3.0-aarch64-linux.tar.gz"
-      sha256 "0f512850d2505844a1eee300f203a13f00dca9ede8b7bda3af9cf53a44fa8a70"
+      url "https://github.com/zhilv666/proxy/releases/download/v1.3.1/proxy-v1.3.1-aarch64-linux.tar.gz"
+      sha256 "18185561111f2d0ad0ba06bbc23394727945d59ff0a6e82c0c6d1f8bafcba116"
     else
-      url "https://github.com/zhilv666/proxy/releases/download/v1.3.0/proxy-v1.3.0-x86_64-linux.tar.gz"
-      sha256 "b33907093adef80b4a76c33d4aef46626ebb9a5f78f0130f6de40be0326c19b8"
+      url "https://github.com/zhilv666/proxy/releases/download/v1.3.1/proxy-v1.3.1-x86_64-linux.tar.gz"
+      sha256 "462e6e7b96e2978feca2c648fb9e2383c83f5bdac0d357740d9c723fee288702"
     end
   end
 
