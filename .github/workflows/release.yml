@@ -129,19 +129,4 @@ jobs:
       - name: 同步 Homebrew Tap (需配置 TAP_TOKEN 密钥)
         env:
           TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
-        run: |
-          if [ -z "$TAP_TOKEN" ]; then
-            echo "未配置 TAP_TOKEN，跳过 tap 同步"
-            exit 0
-          fi
-          git clone "https://x-access-token:${TAP_TOKEN}@github.com/zhilv666/homebrew-tap.git" /tmp/tap
-          mkdir -p /tmp/tap/Formula
-          cp pkg/homebrew/proxy.rb /tmp/tap/Formula/proxy.rb
-          cd /tmp/tap
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/proxy.rb
-          if ! git diff --cached --quiet; then
-            git commit -m "proxy ${GITHUB_REF_NAME}"
-            git push
-          fi
+        run: bash scripts/sync-tap.sh "${GITHUB_REF_NAME}"

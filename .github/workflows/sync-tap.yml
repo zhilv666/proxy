@@ -1,0 +1,20 @@
+# 手动同步 Homebrew Tap: 把 main 上的 pkg/homebrew/proxy.rb 推到 homebrew-tap 仓库。
+# 发版工作流会自动同步；此工作流用于失败后的手动补跑 (Actions 页面 Run workflow)。
+name: Sync Homebrew Tap
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 同步 Formula 到 tap
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: bash scripts/sync-tap.sh manual
