@@ -54,7 +54,10 @@ jobs:
           - x86_64-macos
           - aarch64-macos
     steps:
+      # 完整历史 + tags: 构建时 git describe 生成版本号需要
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: mlugg/setup-zig@v2
         with:

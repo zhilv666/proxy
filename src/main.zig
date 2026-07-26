@@ -1,10 +1,10 @@
 const std = @import("std");
+const builtin = @import("builtin");
+const build_info = @import("build_info");
 const Config = @import("config.zig");
 const Alias = @import("alias.zig");
 const Tui = @import("tui.zig");
 const output = @import("output.zig");
-
-const VERSION = "1.0.0";
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -24,7 +24,7 @@ pub fn main() !void {
     if (std.mem.eql(u8, command, "-h") or std.mem.eql(u8, command, "--help")) {
         printHelp();
     } else if (std.mem.eql(u8, command, "-v") or std.mem.eql(u8, command, "--version")) {
-        output.print("proxy version {s}\n", .{VERSION});
+        printVersion();
     } else if (std.mem.eql(u8, command, "config")) {
         try handleConfig(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "alias")) {
@@ -35,6 +35,26 @@ pub fn main() !void {
         // Execute command with proxy
         try execWithProxy(allocator, args[1..]);
     }
+}
+
+fn printVersion() void {
+    output.print(
+        "proxy version {s}\n" ++
+            "\n" ++
+            "提交哈希: {s}\n" ++
+            "构建时间: {s}\n" ++
+            "Zig 版本: {s}\n" ++
+            "目标平台: {s}-{s} ({s})\n",
+        .{
+            build_info.version,
+            build_info.commit,
+            build_info.build_time,
+            builtin.zig_version_string,
+            @tagName(builtin.target.cpu.arch),
+            @tagName(builtin.target.os.tag),
+            @tagName(builtin.mode),
+        },
+    );
 }
 
 fn printHelp() void {
