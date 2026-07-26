@@ -19,15 +19,20 @@ DATE="$(git log -1 --format=%ad --date=short "${TAG}")"
 
 # 按前缀归类提交 (feat/fix/docs/其他)，兼容 "✨ feat(...)" 这类 emoji 前缀。
 # LC_ALL=C 让 grep 按字节匹配，四字节 emoji 在部分环境的 UTF-8 字符类下会匹配失败。
+subjects() {
+    # 排除 CI 自身的更新日志回写提交
+    git log --no-merges --pretty='%s (%h)' "${RANGE}" | LC_ALL=C grep -Ev '^docs: 更新 v[0-9.]+ 更新日志' || true
+}
+
 collect() {
     local pattern="$1"
-    git log --no-merges --pretty='%s (%h)' "${RANGE}" | LC_ALL=C grep -E "^([^ ]+ )?${pattern}" | sed 's/^/- /' || true
+    subjects | LC_ALL=C grep -E "^([^ ]+ )?${pattern}" | sed 's/^/- /' || true
 }
 
 FEAT="$(collect 'feat')"
 FIX="$(collect '(fix|bugfix|hotfix)')"
 DOCS="$(collect '(docs|doc)')"
-OTHER="$(git log --no-merges --pretty='%s (%h)' "${RANGE}" | LC_ALL=C grep -Ev '^([^ ]+ )?(feat|fix|bugfix|hotfix|docs|doc)' | sed 's/^/- /' || true)"
+OTHER="$(subjects | LC_ALL=C grep -Ev '^([^ ]+ )?(feat|fix|bugfix|hotfix|docs|doc)' | sed 's/^/- /' || true)"
 
 NOTES="## [${VERSION}] - ${DATE}"
 append_section() {
