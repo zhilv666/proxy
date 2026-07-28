@@ -6,6 +6,7 @@ const Alias = @import("alias.zig");
 const Tui = @import("tui.zig");
 const Check = @import("check.zig");
 const Profile = @import("profile.zig");
+const Screen = @import("screen.zig");
 const output = @import("output.zig");
 
 pub fn main() !void {
@@ -39,6 +40,8 @@ pub fn main() !void {
         try handleSwitch(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "node") or std.mem.eql(u8, command, "nodes")) {
         try handleNode(allocator, args[2..]);
+    } else if (std.mem.eql(u8, command, "screen") or std.mem.eql(u8, command, "session")) {
+        try Screen.run(allocator, args[2..]);
     } else {
         // Execute command with proxy
         try execWithProxy(allocator, args[1..]);
@@ -79,6 +82,7 @@ fn printHelp() void {
         \\  switch <节点>       一键切换代理节点
         \\  tui                 启动 TUI 界面
         \\  status | check      检测代理连通性与延迟 (可选自定义测试地址)
+        \\  screen [名称]       带代理的会话 (包装 screen/tmux, 支持分离重连)
         \\  <command> [args]    使用代理执行命令
         \\
         \\选项:
@@ -92,6 +96,7 @@ fn printHelp() void {
         \\  proxy alias add windows ll "ls -l"
         \\  proxy node save dev
         \\  proxy switch hk
+        \\  proxy screen dev
         \\
     ;
     output.print("{s}", .{help});
@@ -378,4 +383,5 @@ test {
     _ = Check;
     _ = Config;
     _ = Profile;
+    _ = Screen;
 }

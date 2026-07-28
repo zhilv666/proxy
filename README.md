@@ -19,6 +19,7 @@ proxy status                      # 检测代理连通性与延迟
 - 🔗 http / https / socks5 / socks4 四种代理协议
 - 🔀 多代理节点：`proxy switch dev` 在公司内网 / 本地开发 / 海外节点间一键切换
 - 📡 内置 TCP / HTTP Ping：实时查看代理连通性和响应延迟
+- 🪟 带代理的会话：`proxy screen` 包装 screen/tmux，开一个全程走代理的可分离/重连窗口
 - 🏷️ 命令别名系统，支持平台特定别名与跨平台合并显示
 - 🔐 认证代理支持（用户名密码自动 URL 编码）
 
@@ -158,6 +159,33 @@ proxy check https://www.google.com    # 自定义测试地址
   - socks5 / socks4(a) 代理：标准握手 + CONNECT
   - https 代理（与代理本身建 TLS）暂不支持转发检测，仅做 TCP 测试
 - 读写超时 5 秒，代理挂起不会卡死
+
+</details>
+
+<details>
+<summary><b>🖥️ 会话管理</b> — <code>proxy screen</code>（包装 screen / tmux）</summary>
+
+在一个带当前节点代理环境的持久会话里工作，会话内所有命令自动走代理，可随时分离/重连。
+
+```bash
+proxy screen [名称]        # 创建并进入会话（默认名 = 当前节点）
+proxy screen ls            # 列出所有 proxy 会话
+proxy screen -r <名称>     # 重新连接
+proxy screen kill <名称>   # 结束会话
+```
+
+典型用法：
+
+```bash
+proxy switch hk && proxy screen    # 开一个走 hk 代理的会话
+# 会话内: 分离用 Ctrl+A D，之后随时回来
+proxy screen -r hk
+```
+
+- **分离/重连由后端提供**：screen 前缀键 `Ctrl+A`，tmux 已自动对齐为 `Ctrl+A`（`Ctrl+A D` 分离）
+- **会话隔离**：会话名统一加 `proxy-` 前缀，`ls` 只列出 proxy 创建的会话，不干扰你已有的 screen/tmux
+- **后端优先级**：`screen` > `tmux` > 回退。未检测到 screen/tmux 时（典型 Windows CMD/PowerShell）回退为「开一个带代理的新窗口 / 子 shell」，此时无会话保持——装 tmux 即可获得完整能力
+- **代理环境来自当前节点**：先 `proxy switch` 切好节点，再开会话
 
 </details>
 
@@ -365,10 +393,12 @@ proxy alias list          # 确认别名存在且平台匹配当前系统 (或 a
 ├── src/
 │   ├── main.zig        # 入口与命令分发
 │   ├── config.zig      # 配置管理 (JSON 持久化)
+│   ├── profile.zig     # 多节点保存/切换/重命名
 │   ├── alias.zig       # 别名管理
 │   ├── tui.zig         # 全屏 TUI
 │   ├── term.zig        # 跨平台终端层 (原始模式/按键解析/CJK 宽度)
 │   ├── check.zig       # 连通性检测 (TCP/HTTP/SOCKS)
+│   ├── screen.zig      # 带代理的会话 (包装 screen/tmux)
 │   └── output.zig      # Windows UTF-8 输出
 ├── examples/           # TUI 演示 (zig build demo)
 ├── scripts/            # 测试与 CHANGELOG 生成脚本
