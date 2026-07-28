@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.1] - 2026-07-28
+
+### 新增
+- ✨ feat(pkg): Scoop bucket 化 + 安装脚本走 Pages 短链接 (36ac139)
+
+### 其他
+- Delete CNAME (5e36e1c)
+- Create CNAME (3726e2f)
+- Delete CNAME (62b87d0)
+- Create CNAME (8cb56d6)
+- chore: 更新 v1.4.0 包管理器清单 (a4674a4)
+
 ## [1.4.0] - 2026-07-28
 
 ### 新增
