@@ -1,5 +1,5 @@
 # proxy 一键安装脚本 (Windows)
-#   irm https://raw.githubusercontent.com/zhilv666/proxy/main/scripts/install.ps1 | iex
+#   irm https://zhilv666.github.io/proxy/install.ps1 | iex
 $ErrorActionPreference = "Stop"
 
 $repo = "zhilv666/proxy"

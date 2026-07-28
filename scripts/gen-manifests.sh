@@ -26,7 +26,7 @@ for v in H_WIN H_LINUX_X64 H_LINUX_ARM H_MAC_X64 H_MAC_ARM; do
     [ -n "${!v}" ] || { echo "错误: 校验和缺失 ($v)"; exit 1; }
 done
 
-mkdir -p pkg/scoop pkg/homebrew
+mkdir -p pkg/scoop pkg/homebrew bucket
 
 # -- Scoop (Windows) ---------------------------------------------------------
 cat > pkg/scoop/proxy.json <<EOF
@@ -57,6 +57,10 @@ cat > pkg/scoop/proxy.json <<EOF
     }
 }
 EOF
+
+# Scoop bucket 约定: 仓库作为 bucket 时清单需放在 bucket/ 目录，
+# 用户即可 `scoop bucket add proxy <repo> && scoop install proxy`。
+cp pkg/scoop/proxy.json bucket/proxy.json
 
 # -- Homebrew (macOS/Linux) --------------------------------------------------
 cat > pkg/homebrew/proxy.rb <<EOF
@@ -97,4 +101,4 @@ class Proxy < Formula
 end
 EOF
 
-echo "已生成 pkg/scoop/proxy.json 与 pkg/homebrew/proxy.rb (${VERSION})"
+echo "已生成 pkg/scoop/proxy.json、bucket/proxy.json 与 pkg/homebrew/proxy.rb (${VERSION})"

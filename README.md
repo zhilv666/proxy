@@ -28,7 +28,8 @@ proxy status                      # 检测代理连通性与延迟
 **Scoop (Windows)**
 
 ```powershell
-scoop install https://raw.githubusercontent.com/zhilv666/proxy/main/pkg/scoop/proxy.json
+scoop bucket add proxy https://github.com/zhilv666/proxy
+scoop install proxy
 ```
 
 **Homebrew (macOS / Linux)**
@@ -42,10 +43,10 @@ brew install proxy
 
 ```bash
 # Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/zhilv666/proxy/main/scripts/install.sh | bash
+curl -fsSL https://zhilv666.github.io/proxy/install.sh | bash
 
 # Windows (PowerShell)
-irm https://raw.githubusercontent.com/zhilv666/proxy/main/scripts/install.ps1 | iex
+irm https://zhilv666.github.io/proxy/install.ps1 | iex
 ```
 
 **手动下载**

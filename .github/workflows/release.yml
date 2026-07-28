@@ -117,10 +117,10 @@ jobs:
       - name: 更新包管理器清单 (Scoop/Homebrew)
         run: |
           bash scripts/gen-manifests.sh "${GITHUB_REF_NAME}" dist/SHA256SUMS.txt
-          if ! git diff --quiet pkg 2>/dev/null || [ -n "$(git status --porcelain pkg)" ]; then
+          if [ -n "$(git status --porcelain pkg bucket)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add pkg
+            git add pkg bucket
             git commit -m "chore: 更新 ${GITHUB_REF_NAME} 包管理器清单"
             git pull --rebase origin "${{ github.event.repository.default_branch }}"
             git push origin "HEAD:${{ github.event.repository.default_branch }}"

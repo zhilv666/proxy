@@ -1,6 +1,6 @@
 #!/bin/bash
 # proxy 一键安装脚本 (Linux / macOS)
-#   curl -fsSL https://raw.githubusercontent.com/zhilv666/proxy/main/scripts/install.sh | bash
+#   curl -fsSL https://zhilv666.github.io/proxy/install.sh | bash
 # 自定义安装目录: PROXY_INSTALL_DIR=~/.local/bin bash install.sh
 set -euo pipefail
 
