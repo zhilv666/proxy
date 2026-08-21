@@ -1301,10 +1301,12 @@ const App = struct {
 
     // -- 左侧列表 ----------------------------------------------------------
 
-    /// 节点列表: 首行为 "当前配置" 虚拟项，之后是已保存节点。
+    /// 节点列表: 首行为 "当前配置" 虚拟项，之后是已保存节点 (行首序号即 proxy <序号>)。
     fn renderNodeList(self: *App, rows: usize) !void {
         const active = self.panel == .nodes and self.mode != .add_alias;
         const total = self.nodes.len + 1;
+        // 序号列宽随节点数增长，保证 10 个以上仍对齐
+        const num_w: usize = if (self.nodes.len >= 10) 2 else 1;
 
         try self.boxTop("节点", active);
 
@@ -1329,6 +1331,8 @@ const App = struct {
                 const selected = active and self.node_cursor == 0;
                 if (selected) try self.rowRaw(A.rev);
                 try self.rowTxt(if (selected) " ▸ " else "   ");
+                // 虚拟行没有序号，留白对齐下方节点
+                try self.rowPadTo(3 + num_w + 1);
                 if (!selected) {
                     try self.rowRaw(if (self.config.node.len == 0) A.green else A.dim);
                 }
@@ -1347,6 +1351,12 @@ const App = struct {
                     try self.rowRaw(A.rev);
                 }
                 try self.rowTxt(if (selected) " ▸ " else "   ");
+                // 行首序号 = 命令行的 proxy <序号>
+                if (!selected) try self.rowRaw(A.dim);
+                var num_buf: [8]u8 = undefined;
+                try self.rowTxt(std.fmt.bufPrint(&num_buf, "{d}", .{idx}) catch "");
+                try self.rowPadTo(3 + num_w + 1);
+                if (!selected) try self.rowRaw(A.reset);
                 if (!selected) {
                     try self.rowRaw(if (current) A.green else A.bwhite);
                 }
@@ -1354,7 +1364,7 @@ const App = struct {
                 try self.rowTxt(node.name);
                 if (!selected) try self.rowRaw(A.reset);
                 try self.rowTxt(" ");
-                try self.rowPadTo(16);
+                try self.rowPadTo(18);
                 if (!selected) try self.rowRaw(A.dim);
                 // 列表空间有限只显示 host:port，完整信息在右侧详情
                 var addr_buf: [128]u8 = undefined;

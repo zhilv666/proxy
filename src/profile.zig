@@ -122,8 +122,8 @@ pub fn saveCurrent(allocator: std.mem.Allocator, name: []const u8) !void {
     try Config.store(&config);
 }
 
-/// 切换到指定节点: 整体覆盖当前配置。
-pub fn switchTo(allocator: std.mem.Allocator, name: []const u8) !void {
+/// 读取节点为一份配置 (只读，不写盘)，node 字段填该节点名。
+pub fn loadNode(allocator: std.mem.Allocator, name: []const u8) !Config.ConfigData {
     var parsed = try loadProfiles(allocator);
     defer parsed.deinit();
     if (parsed.value != .object) return error.NodeNotFound;
@@ -132,15 +132,70 @@ pub fn switchTo(allocator: std.mem.Allocator, name: []const u8) !void {
     if (entry != .object) return error.NodeNotFound;
 
     var config = Config.ConfigData.init(allocator);
-    defer config.deinit();
+    errdefer config.deinit();
     config.host = try allocator.dupe(u8, strField(entry.object, "host", ""));
     config.port = try allocator.dupe(u8, strField(entry.object, "port", ""));
     config.protocol = try allocator.dupe(u8, strField(entry.object, "protocol", ""));
     config.username = try allocator.dupe(u8, strField(entry.object, "username", ""));
     config.password = try allocator.dupe(u8, strField(entry.object, "password", ""));
     config.node = try allocator.dupe(u8, name);
+    return config;
+}
 
+/// 切换到指定节点: 整体覆盖当前配置。
+pub fn switchTo(allocator: std.mem.Allocator, name: []const u8) !void {
+    var config = try loadNode(allocator, name);
+    defer config.deinit();
     try Config.store(&config);
+}
+
+/// token 是否长得像节点序号 (非空纯十进制数字)。
+pub fn looksLikeIndex(token: []const u8) bool {
+    if (token.len == 0) return false;
+    for (token) |c| {
+        if (!std.ascii.isDigit(c)) return false;
+    }
+    return true;
+}
+
+/// 解析节点标识: 名称优先，其次 1 起始的序号 (顺序同 profiles.json / node list)。
+/// 解析不到返回 null；调用方负责释放返回的名字。
+pub fn resolve(allocator: std.mem.Allocator, token: []const u8) !?[]const u8 {
+    var parsed = try loadProfiles(allocator);
+    defer parsed.deinit();
+    if (parsed.value != .object) return null;
+
+    // 名称优先: 节点真叫 "1" 时按名字命中，不会被序号抢走
+    if (parsed.value.object.get(token)) |v| {
+        if (v == .object) return try allocator.dupe(u8, token);
+    }
+
+    if (!looksLikeIndex(token)) return null;
+    const want = std.fmt.parseInt(usize, token, 10) catch return null;
+    if (want == 0) return null;
+
+    var idx: usize = 0;
+    var it = parsed.value.object.iterator();
+    while (it.next()) |entry| {
+        if (entry.value_ptr.* != .object) continue;
+        idx += 1;
+        if (idx == want) return try allocator.dupe(u8, entry.key_ptr.*);
+    }
+    return null;
+}
+
+/// 已保存的节点数量 (用于序号越界提示)。
+pub fn count(allocator: std.mem.Allocator) !usize {
+    var parsed = try loadProfiles(allocator);
+    defer parsed.deinit();
+    if (parsed.value != .object) return 0;
+
+    var n: usize = 0;
+    var it = parsed.value.object.iterator();
+    while (it.next()) |entry| {
+        if (entry.value_ptr.* == .object) n += 1;
+    }
+    return n;
 }
 
 /// 删除节点；若删除的是当前节点则清除标记。
@@ -294,14 +349,16 @@ pub fn list(allocator: std.mem.Allocator) !void {
     }
 
     try writer.writeAll("节点列表:\n\n");
+    var idx: usize = 0;
     var it = parsed.value.object.iterator();
     while (it.next()) |entry| {
         if (entry.value_ptr.* != .object) continue;
         const name = entry.key_ptr.*;
         const obj = entry.value_ptr.object;
         const active = std.mem.eql(u8, config.node, name);
+        idx += 1;
 
-        try writer.print("  {s} {s}", .{ if (active) "▸" else " ", name });
+        try writer.print("  {d: >2} {s} {s}", .{ idx, if (active) "▸" else " ", name });
         // 名称列对齐 (按字节，节点名一般为 ASCII)
         var pad = if (name.len < 12) 12 - name.len else 1;
         while (pad > 0) : (pad -= 1) try writer.writeAll(" ");
@@ -323,4 +380,18 @@ pub fn list(allocator: std.mem.Allocator) !void {
         }
         try writer.print("{s}\n", .{if (active) "   ← 当前" else ""});
     }
+
+    try writer.writeAll("\n序号可代替节点名: proxy 1 curl https://google.com (临时用节点 1 执行) · proxy 1 (切到节点 1)\n");
+}
+
+test "looksLikeIndex 只认非空纯数字" {
+    try std.testing.expect(looksLikeIndex("1"));
+    try std.testing.expect(looksLikeIndex("42"));
+    try std.testing.expect(looksLikeIndex("0")); // 形似序号, 越界由 resolve 判定
+    try std.testing.expect(!looksLikeIndex(""));
+    try std.testing.expect(!looksLikeIndex("dev"));
+    try std.testing.expect(!looksLikeIndex("1x"));
+    try std.testing.expect(!looksLikeIndex("-1"));
+    try std.testing.expect(!looksLikeIndex("1.5"));
+    try std.testing.expect(!looksLikeIndex("v2"));
 }

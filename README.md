@@ -8,6 +8,7 @@
 
 ```bash
 proxy curl https://google.com     # 带代理执行任意命令
+proxy 2 curl https://google.com   # 用 2 号节点跑这一条，不改当前配置
 proxy tui                         # 全屏交互式配置界面
 proxy status                      # 检测代理连通性与延迟
 ```
@@ -18,6 +19,7 @@ proxy status                      # 检测代理连通性与延迟
 - 🖥️ 全屏 TUI：方向键导航、行内编辑、宽屏双栏自适应布局
 - 🔗 http / https / socks5 / socks4 四种代理协议
 - 🔀 多代理节点：`proxy switch dev` 在公司内网 / 本地开发 / 海外节点间一键切换
+- 🔢 按序号临时指定节点：`proxy 2 curl https://google.com` 只这一条走 2 号节点，不改当前配置
 - 📡 内置 TCP / HTTP Ping：实时查看代理连通性和响应延迟
 - 🪟 带代理的会话：`proxy screen` 包装 screen/tmux，开一个全程走代理的可分离/重连窗口
 - 🏷️ 命令别名系统，支持平台特定别名与跨平台合并显示
@@ -103,9 +105,9 @@ proxy gs
  代理地址 http://127.0.0.1:7890 · 节点 dev
 
 ╭─ 节点 ──────────────────╮ ╭─ 节点 · hk ───────────────────────────╮
-│   ○ 当前配置            │ │   Host       1.2.3.4                  │
-│   ● dev    127.0.0.1:...│ │   Port       1080                     │
-│ ▸   hk     1.2.3.4:1080 │ │   Protocol   socks5                   │
+│     ○ 当前配置          │ │   Host       1.2.3.4                  │
+│   1 ● dev    127.0.0.1:.│ │   Port       1080                     │
+│ ▸ 2   hk     1.2.3.4:10 │ │   Protocol   socks5                   │
 ╰─────────────────────────╯ │   Username   (未设置)                 │
 ╭─ 别名 1/2 ──────────────╮ │   Password   (未设置)                 │
 │   gs [linux+macos]      │ │                                       │
@@ -127,6 +129,7 @@ proxy gs
 
 - 节点列表首行为「当前配置」，其详情即生效配置（有激活节点时编辑会同步写回节点）；
   节点详情首行"名称"可直接重命名，其余字段写入 `profiles.json`，当前节点会同步应用
+- 节点行首的序号就是命令行里的 `proxy <序号>`，如 `proxy 2 curl ...`
 - 别名详情可分别编辑名称 / 命令 / 平台（复选框多选），保存按整组重写
 - Protocol 为固定选项选择（`←→` 切换）；同名同命令的别名跨平台合并显示
 
@@ -243,10 +246,32 @@ proxy node remove company          # 删除节点
 ```
 节点列表:
 
-  ▸ dev         http://127.0.0.1:7890   ← 当前
-    company     http://10.1.0.8:8080
-    hk          socks5://1.2.3.4:1080
+   1 ▸ dev         http://127.0.0.1:7890   ← 当前
+   2   company     http://10.1.0.8:8080
+   3   hk          socks5://1.2.3.4:1080
 ```
+
+**按序号指定节点** — 不想先切再用，直接把序号写在命令前面：
+
+```bash
+proxy 3 curl https://google.com    # 只这一条走 hk，当前节点仍是 dev
+proxy 3 npm install
+proxy 3 status                     # 临时检测 hk 的连通性
+proxy 3                            # 不带命令 = 切换到 hk (等同 proxy switch 3)
+```
+
+序号即 `proxy node list` 的行号（1 起始），凡是要写节点名的地方都能用：
+
+```bash
+proxy switch 2
+proxy node rename 2 office
+proxy node remove 2
+```
+
+- `proxy <序号> <命令>` 只影响这一次执行，**不写配置文件**，当前节点原样不动
+- 节点名优先于序号：真有节点叫 `1` 时，`proxy 1` 命中的是它而不是第一行
+- 序号跟着列表顺序走，删除节点后会重排，脚本里建议仍用节点名
+- `proxy <序号>` 后面只能跟要执行的命令，不接 `config` / `node` / `switch` 等管理子命令
 
 - 节点存储于 `~/.proxy/profiles.json`，切换即整体覆盖当前配置
 - `proxy status` 与 TUI 标题栏会显示当前节点名

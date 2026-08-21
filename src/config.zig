@@ -75,6 +75,36 @@ fn urlEncode(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
     return result.toOwnedSlice(allocator);
 }
 
+/// 临时配置覆盖 (proxy <序号> <命令>): 设置后 load() 一律返回它的副本，
+/// 且禁止一切写盘，保证一次性执行不会污染用户保存的当前配置。
+var ephemeral: ?ConfigData = null;
+
+/// 启用临时覆盖。cfg 的字符串所有权仍在调用方，须存活到覆盖清除为止。
+pub fn setEphemeral(cfg: ConfigData) void {
+    ephemeral = cfg;
+}
+
+pub fn clearEphemeral() void {
+    ephemeral = null;
+}
+
+/// 当前配置是否来自临时覆盖 (供输出加"临时"标记)。
+pub fn isEphemeral() bool {
+    return ephemeral != null;
+}
+
+fn dupeData(allocator: std.mem.Allocator, src: ConfigData) !ConfigData {
+    var out = ConfigData.init(allocator);
+    errdefer out.deinit();
+    out.host = try allocator.dupe(u8, src.host);
+    out.port = try allocator.dupe(u8, src.port);
+    out.protocol = try allocator.dupe(u8, src.protocol);
+    out.username = try allocator.dupe(u8, src.username);
+    out.password = try allocator.dupe(u8, src.password);
+    out.node = try allocator.dupe(u8, src.node);
+    return out;
+}
+
 fn getConfigDir() ![]const u8 {
     if (std.process.getEnvVarOwned(std.heap.page_allocator, "PROXY_HOME")) |home| {
         return home;
@@ -101,6 +131,8 @@ fn getConfigPath(allocator: std.mem.Allocator) ![]const u8 {
 }
 
 pub fn load(allocator: std.mem.Allocator) !ConfigData {
+    if (ephemeral) |src| return dupeData(allocator, src);
+
     const config_path = try getConfigPath(allocator);
     defer allocator.free(config_path);
 
@@ -213,6 +245,9 @@ pub fn list(allocator: std.mem.Allocator) !void {
 }
 
 fn save(config: *const ConfigData) !void {
+    // 临时覆盖期间一律不写盘: proxy <序号> <命令> 只影响本次执行
+    if (ephemeral != null) return error.EphemeralConfig;
+
     const allocator = std.heap.page_allocator;
 
     const config_dir = try getConfigDir();
