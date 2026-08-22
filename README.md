@@ -230,6 +230,9 @@ proxy config set host 127.0.0.1
 proxy config set port 7890
 proxy node save dev                # 本地开发代理
 
+# 存完就"激活"在 dev 上了，此时改配置会写回 dev
+# 要另起一个配置不同的节点，先脱离
+proxy node unlink
 proxy config set host 10.1.0.8
 proxy config set port 8080
 proxy node save company            # 公司内网代理
@@ -275,7 +278,8 @@ proxy node remove 2
 
 - 节点存储于 `~/.proxy/profiles.json`，切换即整体覆盖当前配置
 - `proxy status` 与 TUI 标题栏会显示当前节点名
-- **写透**：有激活节点时 `config set`（含 TUI 编辑当前配置）直接同步写回该节点
+- **写透**：有激活节点时 `config set`（含 TUI 编辑当前配置）直接同步写回该节点。
+  想改当前配置而不动节点，先 `proxy node unlink` 脱离
 - `proxy node rename <旧> <新>` 重命名节点（TUI 里节点详情首行"名称"可直接改）
 
 </details>
@@ -316,6 +320,8 @@ all_proxy / ALL_PROXY
 ```
 
 值形如 `http://127.0.0.1:7890`，配置了认证则为 `http://user:pass@host:port`（自动 URL 编码）。
+
+> Windows 上只注入小写的 `http_proxy` / `https_proxy` / `all_proxy`：系统环境变量本就不区分大小写，原生程序读大写照样拿得到；而 Git Bash / MSYS 这类子进程区分大小写，小写是通用惯例。
 
 ```bash
 proxy curl https://google.com

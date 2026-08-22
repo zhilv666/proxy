@@ -149,6 +149,22 @@ pub fn switchTo(allocator: std.mem.Allocator, name: []const u8) !void {
     try Config.store(&config);
 }
 
+/// 解除激活节点标记: 之后 config set 只改当前配置，不再写回原节点。
+/// 返回原先激活的节点名 (本就未激活时返回 null)，调用方负责释放。
+pub fn unlink(allocator: std.mem.Allocator) !?[]const u8 {
+    var config = try Config.load(allocator);
+    defer config.deinit();
+    if (config.node.len == 0) return null;
+
+    const old = try allocator.dupe(u8, config.node);
+    errdefer allocator.free(old);
+
+    allocator.free(config.node);
+    config.node = "";
+    try Config.store(&config);
+    return old;
+}
+
 /// token 是否长得像节点序号 (非空纯十进制数字)。
 pub fn looksLikeIndex(token: []const u8) bool {
     if (token.len == 0) return false;

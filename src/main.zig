@@ -373,6 +373,13 @@ fn handleNode(allocator: std.mem.Allocator, args: []const []const u8) !void {
             return;
         };
         output.print("✓ 节点已重命名: {s} → {s}\n", .{ old_name, args[2] });
+    } else if (std.mem.eql(u8, subcommand, "unlink") or std.mem.eql(u8, subcommand, "detach")) {
+        if (try Profile.unlink(allocator)) |old| {
+            defer allocator.free(old);
+            output.print("✓ 已脱离节点 {s}，之后 config set 不再写回该节点\n", .{old});
+        } else {
+            output.print("当前未激活任何节点，config set 只改当前配置\n", .{});
+        }
     } else if (std.mem.eql(u8, subcommand, "list")) {
         try Profile.list(allocator);
     } else {
@@ -392,10 +399,12 @@ fn printNodeHelp() void {
         \\  save <名称>            把当前配置保存为节点 (同名覆盖)
         \\  rename <旧|序号> <新>  重命名节点
         \\  remove <名称|序号>     删除节点
+        \\  unlink                 脱离当前节点 (之后 config set 不再写回节点)
         \\  list                   列出所有节点 (proxy node 不带参数同效)
         \\
         \\说明:
         \\  切换到节点后，proxy config set 会直接同步写回该节点
+        \\  所以要另起一个配置不同的新节点，先 proxy node unlink 再改配置
         \\  节点名可用 list 里的序号代替 (同名节点优先按名字匹配)
         \\
         \\切换节点:
@@ -406,6 +415,7 @@ fn printNodeHelp() void {
         \\示例:
         \\  proxy config set host 127.0.0.1 && proxy config set port 7890
         \\  proxy node save dev             # 本地开发代理
+        \\  proxy node unlink               # 脱离 dev，下面的改动不会写回 dev
         \\  proxy config set host 10.1.0.8 && proxy node save company
         \\  proxy switch dev                # 一键切回
         \\  proxy 3 npm install             # 临时用第 3 个节点装包
@@ -436,12 +446,7 @@ fn execWithProxy(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var env_map = try std.process.getEnvMap(allocator);
     defer env_map.deinit();
 
-    try env_map.put("http_proxy", proxy_url);
-    try env_map.put("https_proxy", proxy_url);
-    try env_map.put("HTTP_PROXY", proxy_url);
-    try env_map.put("HTTPS_PROXY", proxy_url);
-    try env_map.put("ALL_PROXY", proxy_url);
-    try env_map.put("all_proxy", proxy_url);
+    try Config.putProxyEnv(&env_map, proxy_url);
 
     // Execute command
     var child = std.process.Child.init(resolved_args, allocator);

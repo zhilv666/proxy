@@ -83,12 +83,7 @@ pub fn extractSessions(
 fn proxyEnv(allocator: std.mem.Allocator, url: []const u8) !std.process.EnvMap {
     var env = try std.process.getEnvMap(allocator);
     errdefer env.deinit();
-    try env.put("http_proxy", url);
-    try env.put("https_proxy", url);
-    try env.put("HTTP_PROXY", url);
-    try env.put("HTTPS_PROXY", url);
-    try env.put("ALL_PROXY", url);
-    try env.put("all_proxy", url);
+    try Config.putProxyEnv(&env, url);
     return env;
 }
 

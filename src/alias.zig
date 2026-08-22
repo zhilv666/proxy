@@ -167,13 +167,15 @@ pub fn add(allocator: std.mem.Allocator, platform_str: []const u8, alias_name: [
 
     var parsed = try loadAliases(allocator);
     defer parsed.deinit();
+    if (parsed.value != .object) return error.CorruptAliases;
 
     const platform_key = platform.toString();
 
     // Get or create platform object
     const gop = try parsed.value.object.getOrPut(platform_key);
     if (!gop.found_existing) {
-        gop.value_ptr.* = .{ .object = std.json.ObjectMap.init(allocator) };
+        // 挂进 parsed 的 arena，随 parsed.deinit 一起释放 (用 gpa 建会漏)
+        gop.value_ptr.* = .{ .object = std.json.ObjectMap.init(parsed.arena.allocator()) };
     }
 
     // Add alias
@@ -189,11 +191,14 @@ pub fn remove(allocator: std.mem.Allocator, platform_str: []const u8, alias_name
 
     var parsed = try loadAliases(allocator);
     defer parsed.deinit();
+    if (parsed.value != .object) return error.CorruptAliases;
 
     const platform_key = platform.toString();
 
     if (parsed.value.object.getPtr(platform_key)) |platform_value| {
-        _ = platform_value.object.swapRemove(alias_name);
+        if (platform_value.* == .object) {
+            _ = platform_value.object.swapRemove(alias_name);
+        }
     }
 
     // Save

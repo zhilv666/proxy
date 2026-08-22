@@ -1,5 +1,25 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const output = @import("output.zig");
+
+/// 注入子进程的代理环境变量名。
+/// Windows 的 EnvMap 键名大小写不敏感，同一变量的两种写法会合并成一条 (只留先 put 的
+/// 那个拼写)，六个 put 实际只剩三条且大小写还不统一。原生 Windows 程序读环境变量本就
+/// 不区分大小写，而 MSYS / Git-Bash 这类子进程区分大小写，故在 Windows 上统一发小写。
+const proxy_env_names: []const []const u8 = if (builtin.os.tag == .windows)
+    &.{ "http_proxy", "https_proxy", "all_proxy" }
+else
+    &.{ "http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY" };
+
+/// 把代理地址写进 env map，供 proxy <命令> / proxy screen 共用。
+pub fn putProxyEnv(env: *std.process.EnvMap, url: []const u8) !void {
+    for (proxy_env_names) |name| {
+        // 先删再放: put 命中已有键时只改值不改键名，父进程继承来的拼写
+        // (如 Windows 上的 ALL_PROXY) 会盖过这里想要的写法
+        env.remove(name);
+        try env.put(name, url);
+    }
+}
 
 pub const ConfigData = struct {
     host: []const u8,
