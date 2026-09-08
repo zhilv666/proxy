@@ -4,24 +4,21 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Zig](https://img.shields.io/badge/zig-0.15.2-orange)
 
-用 Zig 编写的跨平台代理命令行工具：一条命令带代理执行，内置全屏 TUI、命令别名和连通性检测。
+用 Zig 编写的跨平台代理命令行工具：一条命令带代理执行，内置命令别名和连通性检测。
 
 ```bash
 proxy curl https://google.com     # 带代理执行任意命令
 proxy 2 curl https://google.com   # 用 2 号节点跑这一条，不改当前配置
-proxy tui                         # 全屏交互式配置界面
 proxy status                      # 检测代理连通性与延迟
 ```
 
 **核心特性**
 
 - 🚀 零依赖单文件，Windows / Linux / macOS 全平台
-- 🖥️ 全屏 TUI：方向键导航、行内编辑、宽屏双栏自适应布局
 - 🔗 http / https / socks5 / socks4 四种代理协议
 - 🔀 多代理节点：`proxy switch dev` 在公司内网 / 本地开发 / 海外节点间一键切换
 - 🔢 按序号临时指定节点：`proxy 2 curl https://google.com` 只这一条走 2 号节点，不改当前配置
 - 📡 内置 TCP / HTTP Ping：实时查看代理连通性和响应延迟
-- 🪟 带代理的会话：`proxy screen` 包装 screen/tmux，开一个全程走代理的可分离/重连窗口
 - 🏷️ 命令别名系统，支持平台特定别名与跨平台合并显示
 - 🔐 认证代理支持（用户名密码自动 URL 编码）
 
@@ -77,7 +74,7 @@ zig build test                       # 运行单元测试
 ## 快速开始
 
 ```bash
-# 1. 配置代理 (或直接 proxy tui 可视化配置)
+# 1. 配置代理
 proxy config set host 127.0.0.1
 proxy config set port 7890
 
@@ -94,46 +91,6 @@ proxy gs
 ```
 
 ## 使用文档
-
-<details>
-<summary><b>🖥️ TUI 交互界面</b> — <code>proxy tui</code></summary>
-
-主-从布局：左侧节点 / 别名列表，右侧详情面板随选中项实时切换、逐字段编辑。宽屏（≥90 列）左右双栏，窗口缩放实时自适应：
-
-```
- PROXY · 跨平台代理配置管理
- 代理地址 http://127.0.0.1:7890 · 节点 dev
-
-╭─ 节点 ──────────────────╮ ╭─ 节点 · hk ───────────────────────────╮
-│     ○ 当前配置          │ │   Host       1.2.3.4                  │
-│   1 ● dev    127.0.0.1:.│ │   Port       1080                     │
-│ ▸ 2   hk     1.2.3.4:10 │ │   Protocol   socks5                   │
-╰─────────────────────────╯ │   Username   (未设置)                 │
-╭─ 别名 1/2 ──────────────╮ │   Password   (未设置)                 │
-│   gs [linux+macos]      │ │                                       │
-│   ll [all]              │ │   Enter 编辑字段 · 列表上 Enter 切换  │
-╰─────────────────────────╯ ╰───────────────────────────────────────╯
-```
-
-| 按键 | 功能 |
-|---|---|
-| `↑↓` / `j k` | 列表选择 / 详情里选字段 |
-| `Tab` | 节点列表 → 别名列表 → 详情面板 循环 |
-| `Enter` | 节点行：切换到该节点；别名行：进详情；详情内：编辑字段 |
-| `→` / `←` (`l`/`h`) | 进入 / 离开详情面板 |
-| `a` | 别名列表添加别名（悬浮弹窗，平台可多选）；节点列表保存节点 |
-| `s` | 把当前配置保存为节点（状态栏输入名称，预填当前节点名） |
-| `d` → `y` | 删除所选节点 / 别名 |
-| `r` | 重新加载配置 |
-| `q` / `Esc` | 退出（详情内 Esc 先返回列表） |
-
-- 节点列表首行为「当前配置」，其详情即生效配置（有激活节点时编辑会同步写回节点）；
-  节点详情首行"名称"可直接重命名，其余字段写入 `profiles.json`，当前节点会同步应用
-- 节点行首的序号就是命令行里的 `proxy <序号>`，如 `proxy 2 curl ...`
-- 别名详情可分别编辑名称 / 命令 / 平台（复选框多选），保存按整组重写
-- Protocol 为固定选项选择（`←→` 切换）；同名同命令的别名跨平台合并显示
-
-</details>
 
 <details>
 <summary><b>📡 连通性检测</b> — <code>proxy status</code> / <code>proxy check</code></summary>
@@ -163,33 +120,6 @@ proxy check https://www.google.com    # 自定义测试地址
   - socks5 / socks4(a) 代理：标准握手 + CONNECT
   - https 代理（与代理本身建 TLS）暂不支持转发检测，仅做 TCP 测试
 - 读写超时 5 秒，代理挂起不会卡死
-
-</details>
-
-<details>
-<summary><b>🖥️ 会话管理</b> — <code>proxy screen</code>（包装 screen / tmux）</summary>
-
-在一个带当前节点代理环境的持久会话里工作，会话内所有命令自动走代理，可随时分离/重连。
-
-```bash
-proxy screen [名称]        # 创建并进入会话（默认名 = 当前节点）
-proxy screen ls            # 列出所有 proxy 会话
-proxy screen -r <名称>     # 重新连接
-proxy screen kill <名称>   # 结束会话
-```
-
-典型用法：
-
-```bash
-proxy switch hk && proxy screen    # 开一个走 hk 代理的会话
-# 会话内: 分离用 Ctrl+A D，之后随时回来
-proxy screen -r hk
-```
-
-- **分离/重连由后端提供**：screen 前缀键 `Ctrl+A`，tmux 已自动对齐为 `Ctrl+A`（`Ctrl+A D` 分离）
-- **会话隔离**：会话名统一加 `proxy-` 前缀，`ls` 只列出 proxy 创建的会话，不干扰你已有的 screen/tmux
-- **后端优先级**：`screen` > `tmux` > 回退。未检测到 screen/tmux 时（典型 Windows CMD/PowerShell）回退为「开一个带代理的新窗口 / 子 shell」，此时无会话保持——装 tmux 即可获得完整能力
-- **代理环境来自当前节点**：先 `proxy switch` 切好节点，再开会话
 
 </details>
 
@@ -277,10 +207,10 @@ proxy node remove 2
 - `proxy <序号>` 后面只能跟要执行的命令，不接 `config` / `node` / `switch` 等管理子命令
 
 - 节点存储于 `~/.proxy/profiles.json`，切换即整体覆盖当前配置
-- `proxy status` 与 TUI 标题栏会显示当前节点名
-- **写透**：有激活节点时 `config set`（含 TUI 编辑当前配置）直接同步写回该节点。
+- `proxy status` 会显示当前节点名
+- **写透**：有激活节点时 `config set`直接同步写回该节点。
   想改当前配置而不动节点，先 `proxy node unlink` 脱离
-- `proxy node rename <旧> <新>` 重命名节点（TUI 里节点详情首行"名称"可直接改）
+- `proxy node rename <旧> <新>` 重命名节点
 
 </details>
 
@@ -383,7 +313,7 @@ proxy sh -c 'env | grep -i proxy'
 proxy version 1.2.0
 
 提交哈希: 9bccdac
-构建时间: 2026-07-26 11:22 UTC
+构建时间: 2026-07-26 19:22 +08
 Zig 版本: 0.15.2
 目标平台: x86_64-windows (ReleaseFast)
 ```
@@ -412,7 +342,6 @@ TCP 失败 → 代理进程没跑或端口不对；TCP 成功但 HTTP 失败 →
 proxy alias list          # 确认别名存在且平台匹配当前系统 (或 all)
 ```
 
-**TUI 无法启动** — TUI 需要交互式终端，输入/输出被重定向时会直接报错退出。
 
 </details>
 
@@ -427,12 +356,8 @@ proxy alias list          # 确认别名存在且平台匹配当前系统 (或 a
 │   ├── config.zig      # 配置管理 (JSON 持久化)
 │   ├── profile.zig     # 多节点保存/切换/重命名
 │   ├── alias.zig       # 别名管理
-│   ├── tui.zig         # 全屏 TUI
-│   ├── term.zig        # 跨平台终端层 (原始模式/按键解析/CJK 宽度)
 │   ├── check.zig       # 连通性检测 (TCP/HTTP/SOCKS)
-│   ├── screen.zig      # 带代理的会话 (包装 screen/tmux)
 │   └── output.zig      # Windows UTF-8 输出
-├── examples/           # TUI 演示 (zig build demo)
 ├── scripts/            # 测试与 CHANGELOG 生成脚本
 └── .github/workflows/  # 推 tag 自动发布
 ```

@@ -3,10 +3,8 @@ const builtin = @import("builtin");
 const build_info = @import("build_info");
 const Config = @import("config.zig");
 const Alias = @import("alias.zig");
-const Tui = @import("tui.zig");
 const Check = @import("check.zig");
 const Profile = @import("profile.zig");
-const Screen = @import("screen.zig");
 const output = @import("output.zig");
 
 pub fn main() !void {
@@ -32,16 +30,12 @@ pub fn main() !void {
         try handleConfig(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "alias")) {
         try handleAlias(allocator, args[2..]);
-    } else if (std.mem.eql(u8, command, "tui")) {
-        try Tui.run(allocator);
     } else if (std.mem.eql(u8, command, "status") or std.mem.eql(u8, command, "check")) {
         try Check.run(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "switch")) {
         try handleSwitch(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "node") or std.mem.eql(u8, command, "nodes")) {
         try handleNode(allocator, args[2..]);
-    } else if (std.mem.eql(u8, command, "screen") or std.mem.eql(u8, command, "session")) {
-        try Screen.run(allocator, args[2..]);
     } else if (Profile.looksLikeIndex(command)) {
         // proxy <序号> [命令...] —— 按 node list 的顺序选节点
         try handleIndexed(allocator, command, args[2..]);
@@ -83,9 +77,7 @@ fn printHelp() void {
         \\  alias               别名管理
         \\  node                节点管理 (保存多套代理配置)
         \\  switch <节点>       一键切换代理节点 (支持序号)
-        \\  tui                 启动 TUI 界面
         \\  status | check      检测代理连通性与延迟 (可选自定义测试地址)
-        \\  screen [名称]       带代理的会话 (包装 screen/tmux, 支持分离重连)
         \\  <序号> [命令]       按 node list 的序号选节点: 带命令=只这条临时用, 不带=切换过去
         \\  <command> [args]    使用代理执行命令
         \\
@@ -102,7 +94,6 @@ fn printHelp() void {
         \\  proxy switch hk
         \\  proxy 1 curl https://google.com    # 用第 1 个节点跑，当前节点不变
         \\  proxy 2                            # 切换到第 2 个节点
-        \\  proxy screen dev
         \\
     ;
     output.print("{s}", .{help});
@@ -308,8 +299,6 @@ fn handleIndexed(allocator: std.mem.Allocator, token: []const u8, rest: []const 
 
     if (std.mem.eql(u8, rest[0], "status") or std.mem.eql(u8, rest[0], "check")) {
         try Check.run(allocator, rest[1..]);
-    } else if (std.mem.eql(u8, rest[0], "screen") or std.mem.eql(u8, rest[0], "session")) {
-        try Screen.run(allocator, rest[1..]);
     } else {
         try execWithProxy(allocator, rest);
     }
@@ -317,7 +306,7 @@ fn handleIndexed(allocator: std.mem.Allocator, token: []const u8, rest: []const 
 
 /// 会写配置文件的自有子命令，不能在临时节点下运行。
 fn isManageCommand(name: []const u8) bool {
-    const manage = [_][]const u8{ "config", "alias", "node", "nodes", "switch", "tui" };
+    const manage = [_][]const u8{ "config", "alias", "node", "nodes", "switch" };
     for (manage) |m| {
         if (std.mem.eql(u8, name, m)) return true;
     }
@@ -460,9 +449,7 @@ fn execWithProxy(allocator: std.mem.Allocator, args: []const []const u8) !void {
 }
 
 test {
-    _ = Tui;
     _ = Check;
     _ = Config;
     _ = Profile;
-    _ = Screen;
 }

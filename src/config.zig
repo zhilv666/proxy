@@ -11,7 +11,7 @@ const proxy_env_names: []const []const u8 = if (builtin.os.tag == .windows)
 else
     &.{ "http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY" };
 
-/// 把代理地址写进 env map，供 proxy <命令> / proxy screen 共用。
+/// 把代理地址写进 env map,供 proxy <命令> 注入子进程。
 pub fn putProxyEnv(env: *std.process.EnvMap, url: []const u8) !void {
     for (proxy_env_names) |name| {
         // 先删再放: put 命中已有键时只改值不改键名，父进程继承来的拼写
