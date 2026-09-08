@@ -89,6 +89,7 @@ fn printHelp() void {
         \\Options:
         \\  -h, --help          Show help
         \\  -v, --version       Show version
+        \\
     ;
     output.print("{s}", .{help});
 }
@@ -156,6 +157,7 @@ fn printConfigHelp() void {
         \\   protocol            Proxy protocol http/https/socks5/socks4 (default: http)
         \\   username            Proxy username
         \\   password            Proxy password
+        \\
     ;
     output.print("{s}", .{help});
 }
@@ -206,6 +208,7 @@ fn printAliasHelp() void {
         \\
         \\ Platforms:
         \\   windows, linux, macos, all          all = every platform
+        \\
     ;
     output.print("{s}", .{help});
 }
@@ -382,6 +385,7 @@ fn printNodeHelp() void {
         \\   proxy switch <name|index>
         \\   proxy <index>                   same as above
         \\   proxy <index> <command> [...]   run once via that node without switching
+        \\
     ;
     output.print("{s}", .{help});
 }
