@@ -5,6 +5,7 @@ const Config = @import("config.zig");
 const Alias = @import("alias.zig");
 const Check = @import("check.zig");
 const Profile = @import("profile.zig");
+const Enter = @import("enter.zig");
 const output = @import("output.zig");
 
 pub fn main() !void {
@@ -36,6 +37,9 @@ pub fn main() !void {
         try handleSwitch(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "node") or std.mem.eql(u8, command, "nodes")) {
         try handleNode(allocator, args[2..]);
+    } else if (std.mem.eql(u8, command, "on")) {
+        // proxy on —— 进入当前节点的代理子 shell,命令走代理,exit 返回原环境
+        try Enter.run(allocator);
     } else if (Profile.looksLikeIndex(command)) {
         // proxy <序号> [命令...] —— 按 node list 的顺序选节点
         try handleIndexed(allocator, command, args[2..]);
@@ -78,6 +82,7 @@ fn printHelp() void {
         \\  node                节点管理 (保存多套代理配置)
         \\  switch <节点>       一键切换代理节点 (支持序号)
         \\  status | check      检测代理连通性与延迟 (可选自定义测试地址)
+        \\  on                  进入当前节点的代理子 shell (exit 返回,命令自动走代理)
         \\  <序号> [命令]       按 node list 的序号选节点: 带命令=只这条临时用, 不带=切换过去
         \\  <command> [args]    使用代理执行命令
         \\
@@ -92,6 +97,8 @@ fn printHelp() void {
         \\  proxy alias add windows ll "ls -l"
         \\  proxy node save dev
         \\  proxy switch hk
+        \\  proxy on                          # 进入代理子 shell,exit 返回原环境
+        \\  proxy 2 on                        # 用第 2 个节点的代理进入子 shell
         \\  proxy 1 curl https://google.com    # 用第 1 个节点跑，当前节点不变
         \\  proxy 2                            # 切换到第 2 个节点
         \\
@@ -299,6 +306,9 @@ fn handleIndexed(allocator: std.mem.Allocator, token: []const u8, rest: []const 
 
     if (std.mem.eql(u8, rest[0], "status") or std.mem.eql(u8, rest[0], "check")) {
         try Check.run(allocator, rest[1..]);
+    } else if (std.mem.eql(u8, rest[0], "on")) {
+        // proxy <序号> on —— 进入该节点的代理子 shell (期间 Config 临时为该节点)
+        try Enter.run(allocator);
     } else {
         try execWithProxy(allocator, rest);
     }
@@ -452,4 +462,5 @@ test {
     _ = Check;
     _ = Config;
     _ = Profile;
+    _ = Enter;
 }

@@ -9,6 +9,7 @@
 ```bash
 proxy curl https://google.com     # 带代理执行任意命令
 proxy 2 curl https://google.com   # 用 2 号节点跑这一条，不改当前配置
+proxy on                          # 进入代理子 shell: 里面的命令都走代理,exit 返回
 proxy status                      # 检测代理连通性与延迟
 ```
 
@@ -18,6 +19,7 @@ proxy status                      # 检测代理连通性与延迟
 - 🔗 http / https / socks5 / socks4 四种代理协议
 - 🔀 多代理节点：`proxy switch dev` 在公司内网 / 本地开发 / 海外节点间一键切换
 - 🔢 按序号临时指定节点：`proxy 2 curl https://google.com` 只这一条走 2 号节点，不改当前配置
+- 🐚 代理子 shell:`proxy on` 进入一个命令都自动走代理的 shell,`exit` 返回原环境,历史命令互通
 - 📡 内置 TCP / HTTP Ping：实时查看代理连通性和响应延迟
 - 🏷️ 命令别名系统，支持平台特定别名与跨平台合并显示
 - 🔐 认证代理支持（用户名密码自动 URL 编码）
@@ -235,6 +237,31 @@ proxy gs          # → git status (带代理环境)
 proxy open        # Windows 上 → explorer . ; macOS 上 → open .
 proxy gs --short  # 追加参数原样传递 → git status --short
 ```
+
+</details>
+
+<details>
+<summary><b>🐚 代理子 shell</b> — <code>proxy on</code></summary>
+
+不想每条命令都前缀 <code>proxy</code>, 而想“进入一个都走代理的环境”时:
+
+```bash
+proxy on          # 进入当前节点的代理子 shell
+proxy 2 on        # 不切换当前节点,只进 2 号节点的代理环境
+
+# 里面直接敲, 自动走代理:
+curl https://google.com
+git pull
+npm install
+
+exit              # 返回原来的 shell, 原环境不受影响
+```
+
+- **实现**: 启动一个注入了 <code>http_proxy</code> / <code>https_proxy</code> / <code>all_proxy</code> 的交互子 shell (继承 <code>$SHELL</code> 或平台默认 shell)
+- **环境**: 子 shell 里读到的是这份注入后的环境,不再读外面的; 退出后外面原样
+- **历史**: 依然是同一个用户与同一份 <code>HISTFILE</code>, 进出历史互通
+- **用法**: 里面直接敲原生命令 (curl/git/npm 等); 若还要管理配置请先 <code>exit</code> 回到外面
+- **注意**: 这是“子 shell”而非 screen/tmux,不支持 detach 后离开再回来
 
 </details>
 
