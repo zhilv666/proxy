@@ -57,8 +57,14 @@ pub fn run(allocator: std.mem.Allocator) !void {
 }
 
 /// 探测并组装交互 shell 的 argv (每段都在 allocator 上分配,调用方整体释放)。
-/// 优先级: $SHELL (若有) → Windows: PowerShell → cmd;Unix: bash → sh。
-/// 裸启动即可进交互模式 (bash/zsh/pwsh/cmd 不带参数时默认交互)。
+///
+/// 优先级:
+///   1. Windows 下 MSYSTEM 已设 (Git Bash / MSYS2) → bash (该信号比 $SHELL 稳定:
+///      Git Bash 派生原生 exe 时 $SHELL 时有时无,MSYSTEM 恒定存在)
+///   2. $SHELL 已设 (Unix 用户 / 显式指定) → 取其 basename 按 PATH 找
+///      (直接拿 /bin/bash.exe 这类 MSYS 路径给原生 spawn 会失败)
+///   3. 平台默认 → Windows: PowerShell → cmd;Unix: bash → sh
+///   裸启动即可进交互模式 (bash/zsh/pwsh/cmd 不带参数时默认交互)。
 fn shellArgv(allocator: std.mem.Allocator) ![]const []const u8 {
     var list: std.ArrayList([]const u8) = .{};
     errdefer {
@@ -66,9 +72,17 @@ fn shellArgv(allocator: std.mem.Allocator) ![]const []const u8 {
         list.deinit(allocator);
     }
 
+    // 1. Git Bash / MSYS2 信号: 直接按名字 bash (经 PATH 解析到 Git 的 bash.exe)
+    if (is_windows and envIsSet(allocator, "MSYSTEM")) {
+        try list.append(allocator, try allocator.dupe(u8, "bash"));
+        return list.toOwnedSlice(allocator);
+    }
+
+    // 2. $SHELL: 取 basename 按 PATH spawn
     if (std.process.getEnvVarOwned(allocator, "SHELL")) |shell| {
-        // Git Bash/MSYS/Unix 用户常用,直接进交互
-        try list.append(allocator, shell); // getEnvVarOwned 已分配,所有权移交
+        defer allocator.free(shell);
+        const base = std.fs.path.basename(shell); // 去目录; 原样经 PATH 找
+        try list.append(allocator, try allocator.dupe(u8, base));
         return list.toOwnedSlice(allocator);
     } else |_| {}
 
@@ -87,6 +101,14 @@ fn shellArgv(allocator: std.mem.Allocator) ![]const []const u8 {
     }
 
     return list.toOwnedSlice(allocator);
+}
+
+/// 环境变量是否存在 (不关心值)。
+fn envIsSet(allocator: std.mem.Allocator, name: []const u8) bool {
+    if (std.process.getEnvVarOwned(allocator, name)) |v| {
+        allocator.free(v);
+        return true;
+    } else |_| return false;
 }
 
 fn commandExists(allocator: std.mem.Allocator, name: []const u8) bool {
