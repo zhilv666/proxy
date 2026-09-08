@@ -89,19 +89,6 @@ fn printHelp() void {
         \\Options:
         \\  -h, --help          Show help
         \\  -v, --version       Show version
-        \\
-        \\Examples:
-        \\  proxy curl https://google.com
-        \\  proxy ll
-        \\  proxy config set host 127.0.0.1
-        \\  proxy alias add windows ll "ls -l"
-        \\  proxy node save dev
-        \\  proxy switch hk
-        \\  proxy on                           # enter a proxied subshell; exit to return
-        \\  proxy 2 on                         # enter subshell via node 2 proxy
-        \\  proxy 1 curl https://google.com    # run once via node 1, keep current node
-        \\  proxy 2                            # switch to node 2
-        \\
     ;
     output.print("{s}", .{help});
 }
@@ -169,12 +156,6 @@ fn printConfigHelp() void {
         \\   protocol            Proxy protocol http/https/socks5/socks4 (default: http)
         \\   username            Proxy username
         \\   password            Proxy password
-        \\
-        \\ Examples:
-        \\   proxy config set host 127.0.0.1
-        \\   proxy config set port 7890
-        \\   proxy config set username myuser
-        \\   proxy config list
     ;
     output.print("{s}", .{help});
 }
@@ -225,13 +206,6 @@ fn printAliasHelp() void {
         \\
         \\ Platforms:
         \\   windows, linux, macos, all          all = every platform
-        \\
-        \\ Examples:
-        \\   proxy alias add linux ll "ls -l"
-        \\   proxy alias add windows ll "dir"
-        \\   proxy alias add all gs "git status"
-        \\   proxy alias remove linux ll
-        \\   proxy alias list
     ;
     output.print("{s}", .{help});
 }
@@ -408,14 +382,6 @@ fn printNodeHelp() void {
         \\   proxy switch <name|index>
         \\   proxy <index>                   same as above
         \\   proxy <index> <command> [...]   run once via that node without switching
-        \\
-        \\ Examples:
-        \\   proxy config set host 127.0.0.1 && proxy config set port 7890
-        \\   proxy node save dev             # local dev proxy
-        \\   proxy node unlink               # stop writing back to dev
-        \\   proxy config set host 10.1.0.8 && proxy node save company
-        \\   proxy switch dev                # switch back
-        \\   proxy 3 npm install             # run via node 3 for this command only
     ;
     output.print("{s}", .{help});
 }
