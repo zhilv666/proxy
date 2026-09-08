@@ -53,10 +53,10 @@ fn printVersion() void {
     output.print(
         "proxy version {s}\n" ++
             "\n" ++
-            "提交哈希: {s}\n" ++
-            "构建时间: {s}\n" ++
-            "Zig 版本: {s}\n" ++
-            "目标平台: {s}-{s} ({s})\n",
+            "commit: {s}\n" ++
+            "build time: {s}\n" ++
+            "Zig version: {s}\n" ++
+            "target: {s}-{s} ({s})\n",
         .{
             build_info.version,
             build_info.commit,
@@ -71,36 +71,36 @@ fn printVersion() void {
 
 fn printHelp() void {
     const help =
-        \\proxy - 跨平台代理工具
+        \\proxy - cross-platform proxy CLI
         \\
-        \\用法:
-        \\  proxy [命令] [参数...]
+        \\Usage:
+        \\  proxy [command] [args...]
         \\
-        \\命令:
-        \\  config              配置管理
-        \\  alias               别名管理
-        \\  node                节点管理 (保存多套代理配置)
-        \\  switch <节点>       一键切换代理节点 (支持序号)
-        \\  status | check      检测代理连通性与延迟 (可选自定义测试地址)
-        \\  on                  进入当前节点的代理子 shell (exit 返回,命令自动走代理)
-        \\  <序号> [命令]       按 node list 的序号选节点: 带命令=只这条临时用, 不带=切换过去
-        \\  <command> [args]    使用代理执行命令
+        \\Commands:
+        \\  config              Manage config
+        \\  alias               Manage aliases
+        \\  node                Manage saved proxy nodes
+        \\  switch <node>       Switch node (name or index)
+        \\  status | check      Check proxy connectivity and latency
+        \\  on                  Enter a proxied subshell for the current node (exit to leave)
+        \\  <index> [command]   Pick node by list index: with command = run once via that node
+        \\  <command> [args]    Run a command through the proxy
         \\
-        \\选项:
-        \\  -h, --help          显示帮助信息
-        \\  -v, --version       显示版本信息
+        \\Options:
+        \\  -h, --help          Show help
+        \\  -v, --version       Show version
         \\
-        \\示例:
+        \\Examples:
         \\  proxy curl https://google.com
         \\  proxy ll
         \\  proxy config set host 127.0.0.1
         \\  proxy alias add windows ll "ls -l"
         \\  proxy node save dev
         \\  proxy switch hk
-        \\  proxy on                          # 进入代理子 shell,exit 返回原环境
-        \\  proxy 2 on                        # 用第 2 个节点的代理进入子 shell
-        \\  proxy 1 curl https://google.com    # 用第 1 个节点跑，当前节点不变
-        \\  proxy 2                            # 切换到第 2 个节点
+        \\  proxy on                           # enter a proxied subshell; exit to return
+        \\  proxy 2 on                         # enter subshell via node 2 proxy
+        \\  proxy 1 curl https://google.com    # run once via node 1, keep current node
+        \\  proxy 2                            # switch to node 2
         \\
     ;
     output.print("{s}", .{help});
@@ -118,7 +118,7 @@ fn handleConfig(allocator: std.mem.Allocator, args: []const []const u8) !void {
         printConfigHelp();
     } else if (std.mem.eql(u8, subcommand, "set")) {
         if (args.len < 3) {
-            output.print("错误: 需要提供 key 和 value\n用法: proxy config set <key> <value>\n", .{});
+            output.print("error: key and value are required\nusage: proxy config set <key> <value>\n", .{});
             return;
         }
         try Config.set(allocator, args[1], args[2]);
@@ -127,13 +127,13 @@ fn handleConfig(allocator: std.mem.Allocator, args: []const []const u8) !void {
         var cfg = try Config.load(allocator);
         defer cfg.deinit();
         if (cfg.node.len > 0) {
-            output.print("配置已保存: {s} = {s} (已同步到节点 {s})\n", .{ args[1], args[2], cfg.node });
+            output.print("config saved: {s} = {s} (synced to node {s})\n", .{ args[1], args[2], cfg.node });
         } else {
-            output.print("配置已保存: {s} = {s}\n", .{ args[1], args[2] });
+            output.print("config saved: {s} = {s}\n", .{ args[1], args[2] });
         }
     } else if (std.mem.eql(u8, subcommand, "get")) {
         if (args.len < 2) {
-            output.print("错误: 需要提供 key\n用法: proxy config get <key>\n", .{});
+            output.print("error: a key is required\nusage: proxy config get <key>\n", .{});
             return;
         }
         const value = try Config.get(allocator, args[1]);
@@ -141,41 +141,40 @@ fn handleConfig(allocator: std.mem.Allocator, args: []const []const u8) !void {
             defer allocator.free(v);
             output.print("{s} = {s}\n", .{ args[1], v });
         } else {
-            output.print("{s} 未设置\n", .{args[1]});
+            output.print("{s} is not set\n", .{args[1]});
         }
     } else if (std.mem.eql(u8, subcommand, "list")) {
         try Config.list(allocator);
     } else {
-        output.print("未知的子命令: {s}\n", .{subcommand});
+        output.print("unknown subcommand: {s}\n", .{subcommand});
         printConfigHelp();
     }
 }
 
 fn printConfigHelp() void {
     const help =
-        \\proxy config - 配置管理
+        \\ proxy config - manage configuration
         \\
-        \\用法:
-        \\  proxy config <子命令> [参数...]
+        \\ Usage:
+        \\   proxy config <subcommand> [args...]
         \\
-        \\子命令:
-        \\  set <key> <value>   设置配置项
-        \\  get <key>           获取配置项
-        \\  list                列出所有配置
+        \\ Subcommands:
+        \\   set <key> <value>   Set a config key
+        \\   get <key>           Get a config value
+        \\   list                Show all config
         \\
-        \\配置项:
-        \\  host                代理主机 (默认: 127.0.0.1)
-        \\  port                代理端口 (默认: 7890)
-        \\  protocol            代理协议 http/https/socks5/socks4 (默认: http)
-        \\  username            代理用户名
-        \\  password            代理密码
+        \\ Keys:
+        \\   host                Proxy host (default: 127.0.0.1)
+        \\   port                Proxy port (default: 7890)
+        \\   protocol            Proxy protocol http/https/socks5/socks4 (default: http)
+        \\   username            Proxy username
+        \\   password            Proxy password
         \\
-        \\示例:
-        \\  proxy config set host 127.0.0.1
-        \\  proxy config set port 7890
-        \\  proxy config set username myuser
-        \\  proxy config list
-        \\
+        \\ Examples:
+        \\   proxy config set host 127.0.0.1
+        \\   proxy config set port 7890
+        \\   proxy config set username myuser
+        \\   proxy config list
     ;
     output.print("{s}", .{help});
 }
@@ -192,48 +191,47 @@ fn handleAlias(allocator: std.mem.Allocator, args: []const []const u8) !void {
         printAliasHelp();
     } else if (std.mem.eql(u8, subcommand, "add")) {
         if (args.len < 4) {
-            output.print("错误: 需要提供平台、别名和命令\n用法: proxy alias add <platform> <alias> <command>\n", .{});
+            output.print("error: platform, alias and command are required\nusage: proxy alias add <platform> <alias> <command>\n", .{});
             return;
         }
         try Alias.add(allocator, args[1], args[2], args[3]);
-        output.print("别名已添加: {s} ({s}) -> {s}\n", .{ args[2], args[1], args[3] });
+        output.print("alias added: {s} ({s}) -> {s}\n", .{ args[2], args[1], args[3] });
     } else if (std.mem.eql(u8, subcommand, "remove")) {
         if (args.len < 3) {
-            output.print("错误: 需要提供平台和别名\n用法: proxy alias remove <platform> <alias>\n", .{});
+            output.print("error: platform and alias are required\nusage: proxy alias remove <platform> <alias>\n", .{});
             return;
         }
         try Alias.remove(allocator, args[1], args[2]);
-        output.print("别名已删除: {s} ({s})\n", .{ args[2], args[1] });
+        output.print("alias removed: {s} ({s})\n", .{ args[2], args[1] });
     } else if (std.mem.eql(u8, subcommand, "list")) {
         try Alias.list(allocator);
     } else {
-        output.print("未知的子命令: {s}\n", .{subcommand});
+        output.print("unknown subcommand: {s}\n", .{subcommand});
         printAliasHelp();
     }
 }
 
 fn printAliasHelp() void {
     const help =
-        \\proxy alias - 别名管理
+        \\ proxy alias - manage aliases
         \\
-        \\用法:
-        \\  proxy alias <子命令> [参数...]
+        \\ Usage:
+        \\   proxy alias <subcommand> [args...]
         \\
-        \\子命令:
-        \\  add <platform> <alias> <command>    添加别名
-        \\  remove <platform> <alias>           删除别名
-        \\  list                                列出所有别名
+        \\ Subcommands:
+        \\   add <platform> <alias> <command>    Add an alias
+        \\   remove <platform> <alias>           Remove an alias
+        \\   list                                List all aliases
         \\
-        \\平台:
-        \\  windows, linux, macos, all          all 表示所有平台
+        \\ Platforms:
+        \\   windows, linux, macos, all          all = every platform
         \\
-        \\示例:
-        \\  proxy alias add linux ll "ls -l"
-        \\  proxy alias add windows ll "dir"
-        \\  proxy alias add all gs "git status"
-        \\  proxy alias remove linux ll
-        \\  proxy alias list
-        \\
+        \\ Examples:
+        \\   proxy alias add linux ll "ls -l"
+        \\   proxy alias add windows ll "dir"
+        \\   proxy alias add all gs "git status"
+        \\   proxy alias remove linux ll
+        \\   proxy alias list
     ;
     output.print("{s}", .{help});
 }
@@ -241,12 +239,12 @@ fn printAliasHelp() void {
 fn handleSwitch(allocator: std.mem.Allocator, args: []const []const u8) !void {
     if (args.len == 0) {
         try Profile.list(allocator);
-        output.print("\n用法: proxy switch <节点名|序号>\n", .{});
+        output.print("\nusage: proxy switch <node|index>\n", .{});
         return;
     }
 
     const name = (try Profile.resolve(allocator, args[0])) orelse {
-        output.print("错误: 节点不存在: {s}\n\n", .{args[0]});
+        output.print("error: node not found: {s}\n\n", .{args[0]});
         try Profile.list(allocator);
         return;
     };
@@ -263,7 +261,7 @@ fn switchAndReport(allocator: std.mem.Allocator, name: []const u8) !void {
     defer config.deinit();
     const url = try config.buildProxyUrl(allocator);
     defer allocator.free(url);
-    output.print("✓ 已切换到节点 {s}: {s}\n", .{ name, url });
+    output.print("switched to node {s}: {s}\n", .{ name, url });
 }
 
 /// proxy <序号> [命令...] —— 按 node list 的顺序指定节点。
@@ -272,9 +270,9 @@ fn handleIndexed(allocator: std.mem.Allocator, token: []const u8, rest: []const 
     const name = (try Profile.resolve(allocator, token)) orelse {
         const total = try Profile.count(allocator);
         if (total == 0) {
-            output.print("错误: 暂无已保存的节点\n\n用 proxy node save <名称> 把当前配置保存为节点\n", .{});
+            output.print("error: no saved nodes yet\n\nuse \"proxy node save <name>\" to save the current config as a node\n", .{});
         } else {
-            output.print("错误: 节点序号 {s} 无效 (序号从 1 开始，当前共 {d} 个节点)\n\n", .{ token, total });
+            output.print("error: invalid node index {s} (index starts at 1, {d} nodes total)\n\n", .{ token, total });
             try Profile.list(allocator);
         }
         return;
@@ -289,8 +287,8 @@ fn handleIndexed(allocator: std.mem.Allocator, token: []const u8, rest: []const 
     // 管理类子命令没有"临时节点"语义，明确拒绝，避免把临时配置写进磁盘
     if (isManageCommand(rest[0])) {
         output.print(
-            "错误: proxy <序号> 只用于带该节点执行命令，不支持 {s} 子命令\n" ++
-                "用法: proxy {s} <命令> [参数...]   先 proxy switch {s} 再管理\n",
+            "error: proxy <index> runs a command via that node only; unsupported here: {s}\n" ++
+                "usage: proxy {s} <command> [args...]   use \"proxy switch {s}\" first to manage\n",
             .{ rest[0], token, token },
         );
         return;
@@ -335,90 +333,89 @@ fn handleNode(allocator: std.mem.Allocator, args: []const []const u8) !void {
         printNodeHelp();
     } else if (std.mem.eql(u8, subcommand, "save") or std.mem.eql(u8, subcommand, "add")) {
         if (args.len < 2) {
-            output.print("错误: 需要提供节点名\n用法: proxy node save <名称>\n", .{});
+            output.print("error: a node name is required\nusage: proxy node save <name>\n", .{});
             return;
         }
         try Profile.saveCurrent(allocator, args[1]);
-        output.print("✓ 当前配置已保存为节点: {s}\n", .{args[1]});
+        output.print("current config saved as node: {s}\n", .{args[1]});
     } else if (std.mem.eql(u8, subcommand, "remove") or std.mem.eql(u8, subcommand, "rm")) {
         if (args.len < 2) {
-            output.print("错误: 需要提供节点名\n用法: proxy node remove <名称|序号>\n", .{});
+            output.print("error: a node name is required\nusage: proxy node remove <name|index>\n", .{});
             return;
         }
         const name = (try Profile.resolve(allocator, args[1])) orelse {
-            output.print("错误: 节点不存在: {s}\n", .{args[1]});
+            output.print("error: node not found: {s}\n", .{args[1]});
             return;
         };
         defer allocator.free(name);
         try Profile.remove(allocator, name);
-        output.print("✓ 节点已删除: {s}\n", .{name});
+        output.print("node removed: {s}\n", .{name});
     } else if (std.mem.eql(u8, subcommand, "rename") or std.mem.eql(u8, subcommand, "mv")) {
         if (args.len < 3) {
-            output.print("错误: 需要提供旧名与新名\n用法: proxy node rename <旧名|序号> <新名>\n", .{});
+            output.print("error: old and new names are required\nusage: proxy node rename <old|index> <new>\n", .{});
             return;
         }
         // 只解析旧名的序号，新名一律按字面量处理
         const old_name = (try Profile.resolve(allocator, args[1])) orelse {
-            output.print("错误: 节点不存在: {s}\n", .{args[1]});
+            output.print("error: node not found: {s}\n", .{args[1]});
             return;
         };
         defer allocator.free(old_name);
         Profile.rename(allocator, old_name, args[2]) catch |err| {
             switch (err) {
-                error.NodeNotFound => output.print("错误: 节点不存在: {s}\n", .{old_name}),
-                error.NameExists => output.print("错误: 已存在同名节点: {s}\n", .{args[2]}),
+                error.NodeNotFound => output.print("error: node not found: {s}\n", .{old_name}),
+                error.NameExists => output.print("error: a node with that name already exists: {s}\n", .{args[2]}),
                 else => return err,
             }
             return;
         };
-        output.print("✓ 节点已重命名: {s} → {s}\n", .{ old_name, args[2] });
+        output.print("node renamed: {s} -> {s}\n", .{ old_name, args[2] });
     } else if (std.mem.eql(u8, subcommand, "unlink") or std.mem.eql(u8, subcommand, "detach")) {
         if (try Profile.unlink(allocator)) |old| {
             defer allocator.free(old);
-            output.print("✓ 已脱离节点 {s}，之后 config set 不再写回该节点\n", .{old});
+            output.print("detached from node {s}; config set will no longer write back to it\n", .{old});
         } else {
-            output.print("当前未激活任何节点，config set 只改当前配置\n", .{});
+            output.print("no active node; config set only changes the current config\n", .{});
         }
     } else if (std.mem.eql(u8, subcommand, "list")) {
         try Profile.list(allocator);
     } else {
-        output.print("未知的子命令: {s}\n", .{subcommand});
+        output.print("unknown subcommand: {s}\n", .{subcommand});
         printNodeHelp();
     }
 }
 
 fn printNodeHelp() void {
     const help =
-        \\proxy node - 节点管理 (保存多套代理配置，一键切换)
+        \\ proxy node - manage saved proxy nodes
         \\
-        \\用法:
-        \\  proxy node <子命令> [参数...]
+        \\ Usage:
+        \\   proxy node <subcommand> [args...]
         \\
-        \\子命令:
-        \\  save <名称>            把当前配置保存为节点 (同名覆盖)
-        \\  rename <旧|序号> <新>  重命名节点
-        \\  remove <名称|序号>     删除节点
-        \\  unlink                 脱离当前节点 (之后 config set 不再写回节点)
-        \\  list                   列出所有节点 (proxy node 不带参数同效)
+        \\ Subcommands:
+        \\   save <name>            Save current config as a node (overwrite if exists)
+        \\   rename <old|index> <new>  Rename a node
+        \\   remove <name|index>    Remove a node
+        \\   unlink                 Detach from current node (config set no longer writes back)
+        \\   list                   List all nodes (proxy node with no args does the same)
         \\
-        \\说明:
-        \\  切换到节点后，proxy config set 会直接同步写回该节点
-        \\  所以要另起一个配置不同的新节点，先 proxy node unlink 再改配置
-        \\  节点名可用 list 里的序号代替 (同名节点优先按名字匹配)
+        \\ Notes:
+        \\   After switching to a node, proxy config set writes back to that node
+        \\   To start a different node, proxy node unlink first, then change config
+        \\   Indexes come from list; a name matching an index wins
         \\
-        \\切换节点:
-        \\  proxy switch <名称|序号>
-        \\  proxy <序号>                    同上
-        \\  proxy <序号> <命令> [参数...]   只让这条命令走该节点，不改当前节点
+        \\ Switching:
+        \\   proxy switch <name|index>
+        \\   proxy <index>                   same as above
+        \\   proxy <index> <command> [...]   run once via that node without switching
         \\
-        \\示例:
-        \\  proxy config set host 127.0.0.1 && proxy config set port 7890
-        \\  proxy node save dev             # 本地开发代理
-        \\  proxy node unlink               # 脱离 dev，下面的改动不会写回 dev
-        \\  proxy config set host 10.1.0.8 && proxy node save company
-        \\  proxy switch dev                # 一键切回
-        \\  proxy 3 npm install             # 临时用第 3 个节点装包
-        \\
+        \\ Examples:
+        \\   proxy config set host 127.0.0.1 && proxy config set port 7890
+        \\   proxy node save dev             # local dev proxy
+        \\   proxy node unlink               # stop writing back to dev
+        \\   proxy config set host 10.1.0.8 && proxy node save company
+        \\   proxy switch dev                # switch back
+        \\   proxy 3 npm install             # run via node 3 for this command only
     ;
     output.print("{s}", .{help});
 }

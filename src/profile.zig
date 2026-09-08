@@ -360,11 +360,11 @@ pub fn list(allocator: std.mem.Allocator) !void {
     const writer = try output.getWriter();
 
     if (parsed.value != .object or parsed.value.object.count() == 0) {
-        try writer.writeAll("暂无已保存的节点\n\n用 proxy node save <名称> 把当前配置保存为节点\n");
+        try writer.writeAll("no saved nodes yet\n\nuse proxy node save <name> to save the current config as a node\n");
         return;
     }
 
-    try writer.writeAll("节点列表:\n\n");
+    try writer.writeAll("Nodes:\n\n");
     var idx: usize = 0;
     var it = parsed.value.object.iterator();
     while (it.next()) |entry| {
@@ -394,10 +394,10 @@ pub fn list(allocator: std.mem.Allocator) !void {
                 strField(obj, "port", "7890"),
             });
         }
-        try writer.print("{s}\n", .{if (active) "   ← 当前" else ""});
+        try writer.print("{s}\n", .{if (active) "   <- current" else ""});
     }
 
-    try writer.writeAll("\n序号可代替节点名: proxy 1 curl https://google.com (临时用节点 1 执行) · proxy 1 (切到节点 1)\n");
+    try writer.writeAll("\nindexes can replace names: proxy 1 curl https://google.com (run once via node 1), proxy 1 (switch to node 1)\n");
 }
 
 test "looksLikeIndex 只认非空纯数字" {

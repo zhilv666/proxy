@@ -1,5 +1,5 @@
 //! 代理连通性检测: TCP 握手延迟 + 经代理的 HTTP 请求测试。
-//! `proxy status` / `proxy check [测试地址]`
+//! `proxy status` / `proxy check [test url]`
 const std = @import("std");
 const builtin = @import("builtin");
 const Config = @import("config.zig");
@@ -17,7 +17,7 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const port_str = if (config.port.len > 0) config.port else "7890";
     const protocol = if (config.protocol.len > 0) config.protocol else "http";
     const port = std.fmt.parseInt(u16, port_str, 10) catch {
-        output.print("错误: 端口配置无效: {s}\n", .{port_str});
+        output.print("error: invalid port config: {s}\n", .{port_str});
         return;
     };
     const test_url = if (args.len > 0) args[0] else default_test_url;
@@ -25,15 +25,15 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const proxy_url = try config.buildProxyUrl(allocator);
     defer allocator.free(proxy_url);
 
-    output.print("代理状态检测\n\n", .{});
-    output.print("  代理地址   {s}\n", .{proxy_url});
+    output.print("Proxy status check\n\n", .{});
+    output.print("  proxy url   {s}\n", .{proxy_url});
     if (config.node.len > 0) {
-        output.print("  当前节点   {s}{s}\n", .{
+        output.print("  node        {s}{s}\n", .{
             config.node,
-            if (Config.isEphemeral()) " (临时)" else "",
+            if (Config.isEphemeral()) " (ephemeral)" else "",
         });
     }
-    output.print("  测试地址   {s}\n\n", .{test_url});
+    output.print("  test url   {s}\n\n", .{test_url});
 
     // -- TCP 握手延迟 ------------------------------------------------------
     var ok_count: usize = 0;
@@ -58,11 +58,11 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
     }
 
     if (ok_count == 0) {
-        output.print("  TCP 连接   ✗ 0/{d} 全部失败: {s}\n", .{ rounds, @errorName(last_err.?) });
-        output.print("\n  代理状态   ✗ 不可用 (代理端口无法连接)\n", .{});
+        output.print("  TCP         ✗ 0/{d} all failed: {s}\n", .{ rounds, @errorName(last_err.?) });
+        output.print("\n  status      ✗ unreachable (cannot connect to proxy port)\n", .{});
         return;
     }
-    output.print("  TCP 连接   ✓ {d}/{d} 成功   延迟 {d:.2} / {d:.2} / {d:.2} ms (min/avg/max)\n", .{
+    output.print("  TCP         ✓ {d}/{d} ok   latency {d:.2} / {d:.2} / {d:.2} ms (min/avg/max)\n", .{
         ok_count,
         rounds,
         toMs(min_ns),
@@ -72,45 +72,45 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
     // -- 经代理的 HTTP 请求 -------------------------------------------------
     if (std.mem.eql(u8, protocol, "https")) {
-        output.print("  HTTP 请求  - 跳过 (https 代理需与代理建立 TLS，检测暂不支持)\n", .{});
-        output.print("\n  代理状态   ✓ 端口可连 (转发未验证)\n", .{});
+        output.print("  HTTP        - skipped (https proxy needs TLS to the proxy; unsupported)\n", .{});
+        output.print("\n  status      ✓ port reachable (forwarding not verified)\n", .{});
         return;
     }
 
     const url = parseUrl(test_url) orelse {
-        output.print("  HTTP 请求  ✗ 测试地址无效 (仅支持 http:// 与 https://)\n", .{});
+        output.print("  HTTP        ✗ invalid test URL (only http:// and https:// supported)\n", .{});
         return;
     };
 
     var timer = try std.time.Timer.start();
     const code = httpProbe(allocator, &config, protocol, host, port, url, test_url) catch |err| {
-        output.print("  HTTP 请求  ✗ 失败: {s}\n", .{@errorName(err)});
+        output.print("  HTTP        ✗ failed: {s}\n", .{@errorName(err)});
         if (err == error.Socks5AuthRequired) {
-            output.print("             (代理要求 SOCKS5 认证，检测暂不支持)\n", .{});
+            output.print("             (proxy requires SOCKS5 auth; unsupported)\n", .{});
         }
-        output.print("\n  代理状态   ✗ 端口可连，但代理转发失败\n", .{});
+        output.print("\n  status      ✗ port reachable, but forwarding failed\n", .{});
         return;
     };
     const elapsed = timer.read() / std.time.ns_per_ms;
 
     if (code == 0) {
         // socks5 + https: 隧道建立即视为成功
-        output.print("  HTTP 请求  ✓ 隧道已建立   耗时 {d} ms\n", .{elapsed});
-        output.print("\n  代理状态   ✓ 可用\n", .{});
+        output.print("  HTTP        ✓ tunnel established   {d} ms\n", .{elapsed});
+        output.print("\n  status      ✓ available\n", .{});
         return;
     }
 
-    output.print("  HTTP 请求  {s} HTTP {d}   耗时 {d} ms\n", .{
+    output.print("  HTTP        {s} HTTP {d}   {d} ms\n", .{
         if (code < 400) "✓" else "✗",
         code,
         elapsed,
     });
     if (code < 400) {
-        output.print("\n  代理状态   ✓ 可用\n", .{});
+        output.print("\n  status      ✓ available\n", .{});
     } else if (code == 407) {
-        output.print("\n  代理状态   ✗ 代理要求认证 (请检查 username/password 配置)\n", .{});
+        output.print("\n  status      ✗ proxy requires auth (check username/password config)\n", .{});
     } else {
-        output.print("\n  代理状态   ✗ 异常 (HTTP {d})\n", .{code});
+        output.print("\n  status      ✗ abnormal (HTTP {d})\n", .{code});
     }
 }
 
@@ -155,7 +155,7 @@ fn parseUrl(url: []const u8) ?Url {
     return .{ .https = https, .host = host, .port = port, .path = path };
 }
 
-/// 经代理请求测试地址。返回 HTTP 状态码；socks5 + https 隧道建立返回 0。
+/// 经代理请求test url。返回 HTTP 状态码；socks5 + https 隧道建立返回 0。
 fn httpProbe(
     allocator: std.mem.Allocator,
     config: *const Config.ConfigData,

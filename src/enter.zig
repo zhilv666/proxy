@@ -38,8 +38,8 @@ pub fn run(allocator: std.mem.Allocator) !void {
     }
 
     const writer = try output.getWriter();
-    try writer.print("▶ 已进入代理子 shell (代理 {s})\n", .{url});
-    try writer.writeAll("  此终端里敲的命令走该代理;exit / Ctrl+D 返回原环境\n");
+    try writer.print("> proxied subshell entered (proxy {s})\n", .{url});
+    try writer.writeAll("  commands here run through the proxy; exit / Ctrl+D to return\n");
 
     var child = std.process.Child.init(shell_argv, allocator);
     child.env_map = &env_map;
@@ -47,7 +47,7 @@ pub fn run(allocator: std.mem.Allocator) !void {
     child.stdout_behavior = .Inherit;
     child.stderr_behavior = .Inherit;
     const term = child.spawnAndWait() catch |err| {
-        output.print("启动子 shell 失败: {s}\n", .{@errorName(err)});
+        output.print("failed to start subshell: {s}\n", .{@errorName(err)});
         return;
     };
     switch (term) {

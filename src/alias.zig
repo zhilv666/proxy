@@ -268,7 +268,7 @@ pub fn list(allocator: std.mem.Allocator) !void {
     const root = parsed.value.object;
     const writer = try output.getWriter();
 
-    try writer.writeAll("别名列表:\n\n");
+    try writer.writeAll("Aliases:\n\n");
 
     var it = root.iterator();
     while (it.next()) |entry| {

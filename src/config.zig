@@ -256,12 +256,12 @@ pub fn list(allocator: std.mem.Allocator) !void {
 
     const writer = try output.getWriter();
 
-    try writer.writeAll("当前配置:\n");
-    try writer.print("  host     = {s}\n", .{if (config.host.len > 0) config.host else "127.0.0.1 (默认)"});
-    try writer.print("  port     = {s}\n", .{if (config.port.len > 0) config.port else "7890 (默认)"});
-    try writer.print("  protocol = {s}\n", .{if (config.protocol.len > 0) config.protocol else "http (默认)"});
-    try writer.print("  username = {s}\n", .{if (config.username.len > 0) config.username else "(未设置)"});
-    try writer.print("  password = {s}\n", .{if (config.password.len > 0) "***" else "(未设置)"});
+    try writer.writeAll("Current config:\n");
+    try writer.print("  host     = {s}\n", .{if (config.host.len > 0) config.host else "127.0.0.1 (default)"});
+    try writer.print("  port     = {s}\n", .{if (config.port.len > 0) config.port else "7890 (default)"});
+    try writer.print("  protocol = {s}\n", .{if (config.protocol.len > 0) config.protocol else "http (default)"});
+    try writer.print("  username = {s}\n", .{if (config.username.len > 0) config.username else "(not set)"});
+    try writer.print("  password = {s}\n", .{if (config.password.len > 0) "***" else "(not set)"});
 }
 
 fn save(config: *const ConfigData) !void {
