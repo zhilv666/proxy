@@ -6,6 +6,7 @@ const Alias = @import("alias.zig");
 const Check = @import("check.zig");
 const Profile = @import("profile.zig");
 const Enter = @import("enter.zig");
+const Serve = @import("serve.zig");
 const output = @import("output.zig");
 
 pub fn main() !void {
@@ -31,6 +32,8 @@ pub fn main() !void {
         try handleConfig(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "alias")) {
         try handleAlias(allocator, args[2..]);
+    } else if (std.mem.eql(u8, command, "serve")) {
+        try Serve.run(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "status") or std.mem.eql(u8, command, "check")) {
         try Check.run(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "switch")) {
@@ -79,6 +82,7 @@ fn printHelp() void {
         \\Commands:
         \\  config              Manage config
         \\  alias               Manage aliases
+        \\  serve               Manage configuration in a local web browser
         \\  node                Manage saved proxy nodes
         \\  switch <node>       Switch node (name or index)
         \\  status | check      Check proxy connectivity and latency
@@ -291,7 +295,7 @@ fn handleIndexed(allocator: std.mem.Allocator, token: []const u8, rest: []const 
 
 /// 会写配置文件的自有子命令，不能在临时节点下运行。
 fn isManageCommand(name: []const u8) bool {
-    const manage = [_][]const u8{ "config", "alias", "node", "nodes", "switch" };
+    const manage = [_][]const u8{ "config", "alias", "node", "nodes", "switch", "serve" };
     for (manage) |m| {
         if (std.mem.eql(u8, name, m)) return true;
     }
@@ -430,4 +434,6 @@ test {
     _ = Config;
     _ = Profile;
     _ = Enter;
+    _ = Serve;
+    _ = Alias;
 }

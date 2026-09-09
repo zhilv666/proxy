@@ -1,8 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const output = @import("output.zig");
+const Storage = @import("storage.zig");
 
-const Platform = enum {
+pub const Platform = enum {
     windows,
     linux,
     macos,
@@ -35,131 +36,22 @@ const Platform = enum {
     }
 };
 
-const AliasEntry = struct {
-    platform: Platform,
-    alias: []const u8,
-    command: []const u8,
-};
-
-fn getAliasPath(allocator: std.mem.Allocator) ![]const u8 {
-    const config_dir = blk: {
-        if (std.process.getEnvVarOwned(allocator, "PROXY_HOME")) |home| {
-            break :blk home;
-        } else |_| {
-            const home = std.process.getEnvVarOwned(allocator, "HOME") catch |err| {
-                if (err == error.EnvironmentVariableNotFound) {
-                    const userprofile = try std.process.getEnvVarOwned(allocator, "USERPROFILE");
-                    defer allocator.free(userprofile);
-                    break :blk try std.fmt.allocPrint(allocator, "{s}/.proxy", .{userprofile});
-                }
-                return err;
-            };
-            defer allocator.free(home);
-            break :blk try std.fmt.allocPrint(allocator, "{s}/.proxy", .{home});
-        }
-    };
-    defer allocator.free(config_dir);
-
-    return std.fmt.allocPrint(allocator, "{s}/aliases.json", .{config_dir});
-}
-
 fn loadAliases(allocator: std.mem.Allocator) !std.json.Parsed(std.json.Value) {
-    const alias_path = try getAliasPath(allocator);
-    defer allocator.free(alias_path);
-
-    const file = std.fs.openFileAbsolute(alias_path, .{}) catch |err| {
-        if (err == error.FileNotFound) {
-            // Return empty JSON object
-            const empty = "{}";
-            return try std.json.parseFromSlice(std.json.Value, allocator, empty, .{});
+    const parsed = try Storage.loadObject(allocator, "aliases.json");
+    errdefer parsed.deinit();
+    var platforms = parsed.value.object.iterator();
+    while (platforms.next()) |platform| {
+        if (platform.value_ptr.* != .object) return error.CorruptAliases;
+        var aliases = platform.value_ptr.object.iterator();
+        while (aliases.next()) |entry| {
+            if (entry.value_ptr.* != .string) return error.CorruptAliases;
         }
-        return err;
-    };
-    defer file.close();
-
-    const content = try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
-    defer allocator.free(content);
-
-    return try std.json.parseFromSlice(std.json.Value, allocator, content, .{});
+    }
+    return parsed;
 }
 
 fn saveAliases(aliases: std.json.Value) !void {
-    const allocator = std.heap.page_allocator;
-
-    const config_dir = blk: {
-        if (std.process.getEnvVarOwned(allocator, "PROXY_HOME")) |home| {
-            break :blk home;
-        } else |_| {
-            const home = std.process.getEnvVarOwned(allocator, "HOME") catch |err| {
-                if (err == error.EnvironmentVariableNotFound) {
-                    const userprofile = try std.process.getEnvVarOwned(allocator, "USERPROFILE");
-                    defer allocator.free(userprofile);
-                    break :blk try std.fmt.allocPrint(allocator, "{s}/.proxy", .{userprofile});
-                }
-                return err;
-            };
-            defer allocator.free(home);
-            break :blk try std.fmt.allocPrint(allocator, "{s}/.proxy", .{home});
-        }
-    };
-    defer allocator.free(config_dir);
-
-    // Create directory if not exists
-    std.fs.makeDirAbsolute(config_dir) catch |err| {
-        if (err != error.PathAlreadyExists) return err;
-    };
-
-    const alias_path = try std.fmt.allocPrint(allocator, "{s}/aliases.json", .{config_dir});
-    defer allocator.free(alias_path);
-
-    // Write to file
-    const file = try std.fs.createFileAbsolute(alias_path, .{});
-    defer file.close();
-
-    var buf = std.ArrayList(u8){};
-    defer buf.deinit(allocator);
-
-    const writer = buf.writer(allocator);
-
-    // Write object format
-    try writer.writeAll("{\n");
-
-    if (aliases == .object) {
-        const keys = aliases.object.keys();
-        var first = true;
-
-        for (keys) |key| {
-            if (!first) try writer.writeAll(",\n");
-            first = false;
-
-            try writer.print("  \"{s}\": {{\n", .{key});
-
-            const platform_value = aliases.object.get(key).?;
-            if (platform_value == .object) {
-                const alias_keys = platform_value.object.keys();
-                var first_alias = true;
-
-                for (alias_keys) |alias_key| {
-                    if (!first_alias) try writer.writeAll(",\n");
-                    first_alias = false;
-
-                    const cmd_value = platform_value.object.get(alias_key).?;
-                    if (cmd_value == .string) {
-                        try writer.print("    \"{s}\": \"{s}\"", .{ alias_key, cmd_value.string });
-                    }
-                }
-                try writer.writeAll("\n");
-            }
-
-            try writer.writeAll("  }");
-        }
-
-        if (!first) try writer.writeAll("\n");
-    }
-
-    try writer.writeAll("}\n");
-
-    try file.writeAll(buf.items);
+    try Storage.save(std.heap.page_allocator, "aliases.json", aliases);
 }
 
 pub fn add(allocator: std.mem.Allocator, platform_str: []const u8, alias_name: []const u8, command: []const u8) !void {
@@ -197,12 +89,13 @@ pub fn remove(allocator: std.mem.Allocator, platform_str: []const u8, alias_name
 
     if (parsed.value.object.getPtr(platform_key)) |platform_value| {
         if (platform_value.* == .object) {
-            _ = platform_value.object.swapRemove(alias_name);
+            _ = platform_value.object.orderedRemove(alias_name);
         }
     }
 
     // Save
     try saveAliases(parsed.value);
+    try updateSavedOrder(allocator, .{ .platform = platform_str, .name = alias_name }, null);
 }
 
 /// 单条别名记录，字段由 getAll 复制，调用方用 freeEntries 释放。
@@ -212,7 +105,148 @@ pub const Entry = struct {
     command: []const u8,
 };
 
-/// 读取全部别名为数组，供 TUI 等程序化访问。
+pub const Identity = struct { platform: []const u8, name: []const u8 };
+
+/// Create or edit an alias without silently overwriting a different entry.
+/// Renaming or moving platforms is persisted in a single file replacement.
+pub fn storeEntry(allocator: std.mem.Allocator, entry: Entry, original: ?Identity) !void {
+    _ = Platform.fromString(entry.platform) orelse return error.InvalidPlatform;
+    var parsed = try loadAliases(allocator);
+    defer parsed.deinit();
+    var same_identity = false;
+    if (original) |old| {
+        const source = parsed.value.object.get(old.platform) orelse return error.AliasNotFound;
+        if (!source.object.contains(old.name)) return error.AliasNotFound;
+        same_identity = std.mem.eql(u8, old.platform, entry.platform) and std.mem.eql(u8, old.name, entry.name);
+    }
+    if (parsed.value.object.get(entry.platform)) |target| {
+        if (target.object.contains(entry.name) and !same_identity) return error.NameExists;
+    }
+    const target = try parsed.value.object.getOrPut(entry.platform);
+    if (!target.found_existing) {
+        target.value_ptr.* = .{ .object = std.json.ObjectMap.init(parsed.arena.allocator()) };
+    }
+    if (original) |old| {
+        if (std.mem.eql(u8, old.platform, entry.platform)) {
+            try Storage.replaceKey(parsed.arena.allocator(), &target.value_ptr.object, old.name, entry.name, .{ .string = entry.command });
+        } else {
+            _ = parsed.value.object.getPtr(old.platform).?.object.orderedRemove(old.name);
+            try target.value_ptr.object.put(entry.name, .{ .string = entry.command });
+        }
+    } else {
+        try target.value_ptr.object.put(entry.name, .{ .string = entry.command });
+    }
+    try saveAliases(parsed.value);
+    if (original) |old| {
+        if (!same_identity) try updateSavedOrder(allocator, old, .{ .platform = entry.platform, .name = entry.name });
+    }
+}
+
+pub fn removeExisting(allocator: std.mem.Allocator, identity: Identity) !void {
+    var parsed = try loadAliases(allocator);
+    defer parsed.deinit();
+    const platform = parsed.value.object.getPtr(identity.platform) orelse return error.AliasNotFound;
+    if (!platform.object.orderedRemove(identity.name)) return error.AliasNotFound;
+    try saveAliases(parsed.value);
+    try updateSavedOrder(allocator, identity, null);
+}
+
+fn sameIdentity(a: Identity, b: Identity) bool {
+    return std.mem.eql(u8, a.platform, b.platform) and std.mem.eql(u8, a.name, b.name);
+}
+
+fn orderIdentity(value: std.json.Value) !Identity {
+    if (value != .object) return error.InvalidStoredData;
+    const platform = value.object.get("platform") orelse return error.InvalidStoredData;
+    const name = value.object.get("name") orelse return error.InvalidStoredData;
+    if (platform != .string or name != .string) return error.InvalidStoredData;
+    return .{ .platform = platform.string, .name = name.string };
+}
+
+/// The original platform-grouped aliases.json remains compatible with the CLI.
+/// A separate order list can interleave aliases from different platforms.
+fn applySavedOrder(allocator: std.mem.Allocator, entries: []Entry) !void {
+    const parsed = try Storage.loadObject(allocator, "order.json");
+    defer parsed.deinit();
+    const order = parsed.value.object.get("aliases") orelse return;
+    if (order != .array) return error.InvalidStoredData;
+    const ordered = try allocator.alloc(Entry, entries.len);
+    defer allocator.free(ordered);
+    const used = try allocator.alloc(bool, entries.len);
+    defer allocator.free(used);
+    @memset(used, false);
+    var next: usize = 0;
+    for (order.array.items) |value| {
+        const identity = try orderIdentity(value);
+        for (entries, 0..) |entry, index| {
+            if (!used[index] and sameIdentity(identity, .{ .platform = entry.platform, .name = entry.name })) {
+                ordered[next] = entry;
+                next += 1;
+                used[index] = true;
+                break;
+            }
+        }
+    }
+    for (entries, 0..) |entry, index| {
+        if (!used[index]) {
+            ordered[next] = entry;
+            next += 1;
+        }
+    }
+    @memcpy(entries, ordered);
+}
+
+fn updateSavedOrder(allocator: std.mem.Allocator, old: Identity, replacement: ?Identity) !void {
+    var parsed = try Storage.loadObject(allocator, "order.json");
+    defer parsed.deinit();
+    const order = parsed.value.object.getPtr("aliases") orelse return;
+    if (order.* != .array) return error.InvalidStoredData;
+    var changed = false;
+    var index: usize = 0;
+    while (index < order.array.items.len) {
+        const identity = try orderIdentity(order.array.items[index]);
+        if (sameIdentity(identity, old)) {
+            changed = true;
+            if (replacement) |new| {
+                var object = &order.array.items[index].object;
+                try object.put("platform", .{ .string = new.platform });
+                try object.put("name", .{ .string = new.name });
+            } else {
+                _ = order.array.orderedRemove(index);
+                continue;
+            }
+        }
+        index += 1;
+    }
+    if (changed) try Storage.save(allocator, "order.json", parsed.value);
+}
+
+pub fn reorder(allocator: std.mem.Allocator, identities: []const Identity) !void {
+    const entries = try getAll(allocator);
+    defer freeEntries(allocator, entries);
+    if (identities.len != entries.len) return error.OrderChanged;
+    const used = try allocator.alloc(bool, entries.len);
+    defer allocator.free(used);
+    @memset(used, false);
+    var parsed = try Storage.loadObject(allocator, "order.json");
+    defer parsed.deinit();
+    var order = std.array_list.Managed(std.json.Value).init(parsed.arena.allocator());
+    for (identities) |identity| {
+        const index = for (entries, 0..) |entry, index| {
+            if (sameIdentity(identity, .{ .platform = entry.platform, .name = entry.name })) break index;
+        } else return error.OrderChanged;
+        if (used[index]) return error.InvalidOrder;
+        used[index] = true;
+        var object = std.json.ObjectMap.init(parsed.arena.allocator());
+        try object.put("platform", .{ .string = identity.platform });
+        try object.put("name", .{ .string = identity.name });
+        try order.append(.{ .object = object });
+    }
+    try parsed.value.object.put("aliases", .{ .array = order });
+    try Storage.save(allocator, "order.json", parsed.value);
+}
+
+/// 读取全部别名为数组，供网页等程序化访问。
 pub fn getAll(allocator: std.mem.Allocator) ![]Entry {
     const parsed = try loadAliases(allocator);
     defer parsed.deinit();
@@ -249,6 +283,7 @@ pub fn getAll(allocator: std.mem.Allocator) ![]Entry {
         }
     }
 
+    try applySavedOrder(allocator, result.items);
     return result.toOwnedSlice(allocator);
 }
 

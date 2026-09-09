@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const output = @import("output.zig");
+const Storage = @import("storage.zig");
 
 /// 注入子进程的代理环境变量名。
 /// Windows 的 EnvMap 键名大小写不敏感，同一变量的两种写法会合并成一条 (只留先 put 的
@@ -27,7 +28,7 @@ pub const ConfigData = struct {
     protocol: []const u8,
     username: []const u8,
     password: []const u8,
-    /// 当前激活的代理节点名 (proxy switch 设置)，手动改配置后清空
+    /// 当前激活的代理节点名；修改配置时同步写回，unlink 后解除关联。
     node: []const u8,
     allocator: std.mem.Allocator,
 
@@ -125,73 +126,18 @@ fn dupeData(allocator: std.mem.Allocator, src: ConfigData) !ConfigData {
     return out;
 }
 
-fn getConfigDir() ![]const u8 {
-    if (std.process.getEnvVarOwned(std.heap.page_allocator, "PROXY_HOME")) |home| {
-        return home;
-    } else |_| {
-        const home = std.process.getEnvVarOwned(std.heap.page_allocator, "HOME") catch |err| {
-            if (err == error.EnvironmentVariableNotFound) {
-                return std.process.getEnvVarOwned(std.heap.page_allocator, "USERPROFILE") catch {
-                    return error.NoHomeDirectory;
-                };
-            }
-            return err;
-        };
-        defer std.heap.page_allocator.free(home);
-
-        return std.fmt.allocPrint(std.heap.page_allocator, "{s}/.proxy", .{home});
-    }
-}
-
-fn getConfigPath(allocator: std.mem.Allocator) ![]const u8 {
-    const config_dir = try getConfigDir();
-    defer std.heap.page_allocator.free(config_dir);
-
-    return std.fmt.allocPrint(allocator, "{s}/config.json", .{config_dir});
-}
-
 pub fn load(allocator: std.mem.Allocator) !ConfigData {
     if (ephemeral) |src| return dupeData(allocator, src);
-
-    const config_path = try getConfigPath(allocator);
-    defer allocator.free(config_path);
-
     var config = ConfigData.init(allocator);
-
-    const file = std.fs.openFileAbsolute(config_path, .{}) catch |err| {
-        if (err == error.FileNotFound) {
-            // Return default config
-            return config;
-        }
-        return err;
-    };
-    defer file.close();
-
-    const content = try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
-    defer allocator.free(content);
-
-    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, content, .{});
+    errdefer config.deinit();
+    const parsed = try Storage.loadObject(allocator, "config.json");
     defer parsed.deinit();
-
     const root = parsed.value.object;
-
-    if (root.get("host")) |host| {
-        config.host = try allocator.dupe(u8, host.string);
-    }
-    if (root.get("port")) |port| {
-        config.port = try allocator.dupe(u8, port.string);
-    }
-    if (root.get("protocol")) |protocol| {
-        config.protocol = try allocator.dupe(u8, protocol.string);
-    }
-    if (root.get("username")) |username| {
-        config.username = try allocator.dupe(u8, username.string);
-    }
-    if (root.get("password")) |password| {
-        config.password = try allocator.dupe(u8, password.string);
-    }
-    if (root.get("node")) |node| {
-        if (node == .string) config.node = try allocator.dupe(u8, node.string);
+    inline for (.{ "host", "port", "protocol", "username", "password", "node" }) |field| {
+        if (root.get(field)) |value| {
+            if (value != .string) return error.InvalidStoredData;
+            @field(config, field) = try allocator.dupe(u8, value.string);
+        }
     }
 
     return config;
@@ -268,44 +214,27 @@ fn save(config: *const ConfigData) !void {
     // 临时覆盖期间一律不写盘: proxy <序号> <命令> 只影响本次执行
     if (ephemeral != null) return error.EphemeralConfig;
 
-    const allocator = std.heap.page_allocator;
-
-    const config_dir = try getConfigDir();
-    defer allocator.free(config_dir);
-
-    // Create directory if not exists
-    std.fs.makeDirAbsolute(config_dir) catch |err| {
-        if (err != error.PathAlreadyExists) return err;
-    };
-
-    const config_path = try std.fmt.allocPrint(allocator, "{s}/config.json", .{config_dir});
-    defer allocator.free(config_path);
-
-    // Build JSON
-    var buffer = std.ArrayList(u8){};
-    defer buffer.deinit(allocator);
-
-    const writer = buffer.writer(allocator);
-    try writer.writeAll("{\n");
-    try writeField(writer, "host", config.host, true);
-    try writeField(writer, "port", config.port, true);
-    try writeField(writer, "protocol", config.protocol, true);
-    try writeField(writer, "username", config.username, true);
-    try writeField(writer, "password", config.password, true);
-    try writeField(writer, "node", config.node, false);
-    try writer.writeAll("}\n");
-
-    // Write to file
-    const file = try std.fs.createFileAbsolute(config_path, .{});
-    defer file.close();
-
-    try file.writeAll(buffer.items);
+    try Storage.save(config.allocator, "config.json", snapshot(config));
 }
 
-fn writeField(writer: anytype, key: []const u8, value: []const u8, comma: bool) !void {
-    try writer.print("  \"{s}\": ", .{key});
-    try writeJsonString(writer, value);
-    try writer.writeAll(if (comma) ",\n" else "\n");
+pub const Snapshot = struct {
+    host: []const u8,
+    port: []const u8,
+    protocol: []const u8,
+    username: []const u8,
+    password: []const u8,
+    node: []const u8,
+};
+
+pub fn snapshot(config: *const ConfigData) Snapshot {
+    return .{
+        .host = config.host,
+        .port = config.port,
+        .protocol = config.protocol,
+        .username = config.username,
+        .password = config.password,
+        .node = config.node,
+    };
 }
 
 /// 写出带转义的 JSON 字符串，密码等值里的引号/反斜杠不会写坏配置文件。

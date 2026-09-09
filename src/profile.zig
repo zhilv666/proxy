@@ -3,88 +3,27 @@
 const std = @import("std");
 const Config = @import("config.zig");
 const output = @import("output.zig");
+const Storage = @import("storage.zig");
 
 const node_fields = [_][]const u8{ "host", "port", "protocol", "username", "password" };
 
-fn getProfilePath(allocator: std.mem.Allocator) ![]const u8 {
-    const config_dir = blk: {
-        if (std.process.getEnvVarOwned(allocator, "PROXY_HOME")) |home| {
-            break :blk home;
-        } else |_| {
-            const home = std.process.getEnvVarOwned(allocator, "HOME") catch |err| {
-                if (err == error.EnvironmentVariableNotFound) {
-                    const userprofile = try std.process.getEnvVarOwned(allocator, "USERPROFILE");
-                    defer allocator.free(userprofile);
-                    break :blk try std.fmt.allocPrint(allocator, "{s}/.proxy", .{userprofile});
-                }
-                return err;
-            };
-            defer allocator.free(home);
-            break :blk try std.fmt.allocPrint(allocator, "{s}/.proxy", .{home});
-        }
-    };
-    defer allocator.free(config_dir);
-
-    return std.fmt.allocPrint(allocator, "{s}/profiles.json", .{config_dir});
-}
-
 fn loadProfiles(allocator: std.mem.Allocator) !std.json.Parsed(std.json.Value) {
-    const path = try getProfilePath(allocator);
-    defer allocator.free(path);
-
-    const file = std.fs.openFileAbsolute(path, .{}) catch |err| {
-        if (err == error.FileNotFound) {
-            return try std.json.parseFromSlice(std.json.Value, allocator, "{}", .{});
+    const parsed = try Storage.loadObject(allocator, "profiles.json");
+    errdefer parsed.deinit();
+    var entries = parsed.value.object.iterator();
+    while (entries.next()) |entry| {
+        if (entry.value_ptr.* != .object) return error.CorruptProfiles;
+        for (node_fields) |field| {
+            if (entry.value_ptr.object.get(field)) |value| {
+                if (value != .string) return error.CorruptProfiles;
+            }
         }
-        return err;
-    };
-    defer file.close();
-
-    const content = try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
-    defer allocator.free(content);
-
-    return try std.json.parseFromSlice(std.json.Value, allocator, content, .{});
+    }
+    return parsed;
 }
 
 fn saveProfiles(root: std.json.Value) !void {
-    const allocator = std.heap.page_allocator;
-
-    const path = try getProfilePath(allocator);
-    defer allocator.free(path);
-
-    if (std.fs.path.dirname(path)) |dir| {
-        std.fs.makeDirAbsolute(dir) catch |err| {
-            if (err != error.PathAlreadyExists) return err;
-        };
-    }
-
-    var buf: std.ArrayList(u8) = .{};
-    defer buf.deinit(allocator);
-    const writer = buf.writer(allocator);
-
-    try writer.writeAll("{\n");
-    if (root == .object) {
-        const keys = root.object.keys();
-        for (keys, 0..) |key, i| {
-            const value = root.object.get(key).?;
-            if (value != .object) continue;
-            try writer.writeAll("  ");
-            try Config.writeJsonString(writer, key);
-            try writer.writeAll(": {\n");
-            for (node_fields, 0..) |field, fi| {
-                const fv = strField(value.object, field, "");
-                try writer.print("    \"{s}\": ", .{field});
-                try Config.writeJsonString(writer, fv);
-                try writer.writeAll(if (fi + 1 < node_fields.len) ",\n" else "\n");
-            }
-            try writer.writeAll(if (i + 1 < keys.len) "  },\n" else "  }\n");
-        }
-    }
-    try writer.writeAll("}\n");
-
-    const file = try std.fs.createFileAbsolute(path, .{});
-    defer file.close();
-    try file.writeAll(buf.items);
+    try Storage.save(std.heap.page_allocator, "profiles.json", root);
 }
 
 fn strField(obj: std.json.ObjectMap, key: []const u8, default: []const u8) []const u8 {
@@ -219,7 +158,7 @@ pub fn remove(allocator: std.mem.Allocator, name: []const u8) !void {
     var parsed = try loadProfiles(allocator);
     defer parsed.deinit();
     if (parsed.value != .object) return error.NodeNotFound;
-    if (!parsed.value.object.swapRemove(name)) return error.NodeNotFound;
+    if (!parsed.value.object.orderedRemove(name)) return error.NodeNotFound;
 
     try saveProfiles(parsed.value);
 
@@ -242,6 +181,60 @@ pub const Entry = struct {
     password: []const u8,
 };
 
+/// Create/edit a full node. Creating a node leaves the current proxy unchanged;
+/// editing an active node updates the current configuration as well.
+pub fn storeEntry(allocator: std.mem.Allocator, entry: Entry, original_name: ?[]const u8) !void {
+    if (entry.name.len == 0) return error.InvalidNodeName;
+    var parsed = try loadProfiles(allocator);
+    defer parsed.deinit();
+    if (original_name) |old| {
+        if (!parsed.value.object.contains(old)) return error.NodeNotFound;
+    }
+    const same_name = if (original_name) |old| std.mem.eql(u8, old, entry.name) else false;
+    if (parsed.value.object.contains(entry.name) and !same_name) return error.NameExists;
+
+    var current = try Config.load(allocator);
+    defer current.deinit();
+    const is_active = if (original_name) |old| std.mem.eql(u8, current.node, old) else false;
+    var object = std.json.ObjectMap.init(parsed.arena.allocator());
+    inline for (node_fields) |field| {
+        try object.put(field, .{ .string = @field(entry, field) });
+    }
+    if (original_name) |old| {
+        try Storage.replaceKey(parsed.arena.allocator(), &parsed.value.object, old, entry.name, .{ .object = object });
+    } else {
+        try parsed.value.object.put(entry.name, .{ .object = object });
+    }
+    try saveProfiles(parsed.value);
+    if (is_active) {
+        const updated = Config.ConfigData{
+            .host = entry.host,
+            .port = entry.port,
+            .protocol = entry.protocol,
+            .username = entry.username,
+            .password = entry.password,
+            .node = entry.name,
+            .allocator = allocator,
+        };
+        try Config.store(&updated);
+    }
+}
+
+/// Ordering changes neither node values nor the active node. A complete list
+/// prevents an outdated browser from silently dropping newly created nodes.
+pub fn reorder(allocator: std.mem.Allocator, names: []const []const u8) !void {
+    var parsed = try loadProfiles(allocator);
+    defer parsed.deinit();
+    if (names.len != parsed.value.object.count()) return error.OrderChanged;
+    var ordered = std.json.ObjectMap.init(parsed.arena.allocator());
+    for (names) |name| {
+        if (ordered.contains(name)) return error.InvalidOrder;
+        const value = parsed.value.object.get(name) orelse return error.OrderChanged;
+        try ordered.put(name, value);
+    }
+    try saveProfiles(.{ .object = ordered });
+}
+
 fn freeEntry(allocator: std.mem.Allocator, e: Entry) void {
     allocator.free(e.name);
     allocator.free(e.host);
@@ -251,7 +244,7 @@ fn freeEntry(allocator: std.mem.Allocator, e: Entry) void {
     allocator.free(e.password);
 }
 
-/// 读取全部节点为数组，供 TUI 等程序化访问。
+/// 读取全部节点为数组，供网页等程序化访问。
 pub fn getAll(allocator: std.mem.Allocator) ![]Entry {
     var parsed = try loadProfiles(allocator);
     defer parsed.deinit();
@@ -317,8 +310,7 @@ pub fn rename(allocator: std.mem.Allocator, old_name: []const u8, new_name: []co
     const entry = parsed.value.object.get(old_name) orelse return error.NodeNotFound;
 
     const arena = parsed.arena.allocator();
-    try parsed.value.object.put(try arena.dupe(u8, new_name), entry);
-    _ = parsed.value.object.orderedRemove(old_name);
+    try Storage.replaceKey(arena, &parsed.value.object, old_name, try arena.dupe(u8, new_name), entry);
     try saveProfiles(parsed.value);
 
     var config = try Config.load(allocator);

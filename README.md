@@ -11,6 +11,7 @@ proxy curl https://google.com     # 带代理执行任意命令
 proxy 2 curl https://google.com   # 用 2 号节点跑这一条，不改当前配置
 proxy on                          # 进入代理子 shell: 里面的命令都走代理,exit 返回
 proxy status                      # 检测代理连通性与延迟
+proxy serve                       # 在浏览器中管理代理节点和命令别名
 ```
 
 **核心特性**
@@ -22,6 +23,7 @@ proxy status                      # 检测代理连通性与延迟
 - 🐚 代理子 shell:`proxy on` 进入一个命令都自动走代理的 shell,`exit` 返回原环境,历史命令互通
 - 📡 内置 TCP / HTTP Ping：实时查看代理连通性和响应延迟
 - 🏷️ 命令别名系统，支持平台特定别名与跨平台合并显示
+- 🌐 内嵌网页管理：代理配置、节点和别名的增删查改，支持拖动排序、搜索与平台筛选
 - 🔐 认证代理支持（用户名密码自动 URL 编码）
 
 ## 安装
@@ -69,7 +71,7 @@ zig build small                      # 体积最小化
 zig build test                       # 运行单元测试
 ```
 
-产物位于 `zig-out/bin/proxy`（Windows 为 `proxy.exe`）。非 Debug 构建自动 strip 调试信息，二进制约 250KB~500KB。
+产物位于 `zig-out/bin/proxy`（Windows 为 `proxy.exe`）。非 Debug 构建自动 strip 调试信息，网页资源内嵌于二进制，无需单独分发。
 
 </details>
 
@@ -93,6 +95,28 @@ proxy gs
 ```
 
 ## 使用文档
+
+<details>
+<summary><b>🌐 网页管理</b> — <code>proxy serve</code></summary>
+
+```bash
+proxy serve                 # 打开浏览器访问 http://127.0.0.1:8080/
+proxy serve --port 9090      # 自定义网页端口
+proxy serve --help
+```
+
+启动后输出访问地址，按 `Ctrl+C` 停止。服务仅监听本机 `127.0.0.1`，无需安装 Node.js 或其他运行时。
+
+- **当前代理**：查看和编辑协议、主机、端口及认证信息；支持恢复默认和另存为节点。
+- **代理节点**：新增、查询、编辑、重命名、删除、启用、解除关联；可按名称、地址或协议搜索。
+- **命令别名**：新增、查询、编辑、删除；支持修改名称和所属平台，按名称、命令搜索及平台筛选。
+- **拖动排序**：拖动节点或别名左侧的手柄，松开后自动保存；支持触屏和键盘方向键。节点顺序同步到 CLI 序号，搜索或筛选下排序会保留隐藏条目的位置。
+- **配置同步**：与 CLI 共用 `~/.proxy/` 或 `PROXY_HOME`；编辑当前配置会同步到关联节点，编辑激活节点也会同步当前配置。
+- **保存行为**：新建节点不会自动切换；删除激活节点会保留当前代理参数并解除关联；恢复默认保留节点和别名。
+
+详细用法、接口和验证方式见 [网页管理说明](docs/SERVE.md)。
+
+</details>
 
 <details>
 <summary><b>📡 连通性检测</b> — <code>proxy status</code> / <code>proxy check</code></summary>
@@ -383,6 +407,9 @@ proxy alias list          # 确认别名存在且平台匹配当前系统 (或 a
 │   ├── config.zig      # 配置管理 (JSON 持久化)
 │   ├── profile.zig     # 多节点保存/切换/重命名
 │   ├── alias.zig       # 别名管理
+│   ├── serve.zig       # 本地 HTTP 服务与配置管理接口
+│   ├── storage.zig     # JSON 读取与原子保存
+│   ├── web/            # 内嵌管理网页 (HTML/CSS/JS)
 │   ├── check.zig       # 连通性检测 (TCP/HTTP/SOCKS)
 │   └── output.zig      # Windows UTF-8 输出
 ├── scripts/            # 测试与 CHANGELOG 生成脚本
@@ -393,6 +420,8 @@ proxy alias list          # 确认别名存在且平台匹配当前系统 (或 a
 
 ```bash
 zig build test                                   # 单元测试
+python scripts/test_serve.py                      # 网页接口与 CLI 联调测试 (先 zig build)
+python -B scripts/test_serve_browser.py             # 拖拽/触屏/键盘与布局验证 (需 Playwright Chromium)
 zig build -Dtarget=x86_64-linux                  # 交叉编译
 bash scripts/test.sh                             # 功能测试
 bash scripts/gen-changelog.sh v1.2.0 --notes-only  # 预览更新日志

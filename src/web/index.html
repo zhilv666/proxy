@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Proxy · 配置管理</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <svg class="symbols" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="icon-nodes" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/><path d="M14 6h3a1 1 0 0 1 1 1v7M10 18H7a1 1 0 0 1-1-1v-7"/></symbol>
+    <symbol id="icon-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3m6 0h4"/></symbol>
+    <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 3M5 15a8 8 0 0 0 13 3"/></symbol>
+    <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></symbol>
+    <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+    <symbol id="icon-grip" viewBox="0 0 24 24"><circle cx="8" cy="5" r="1"/><circle cx="16" cy="5" r="1"/><circle cx="8" cy="12" r="1"/><circle cx="16" cy="12" r="1"/><circle cx="8" cy="19" r="1"/><circle cx="16" cy="19" r="1"/></symbol>
+    <symbol id="icon-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></symbol>
+    <symbol id="icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  </svg>
+  <a class="skip-link" href="#main">跳转到内容</a>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="Proxy 首页"><span class="brand-mark"><svg><use href="#icon-nodes"/></svg></span><span>proxy<span class="brand-dot">.</span></span></a>
+    <div class="workspace-label">本地工作空间</div>
+    <nav aria-label="配置导航">
+      <button class="nav-item active" data-view="proxies" aria-current="page"><svg><use href="#icon-nodes"/></svg><span>代理配置</span><span class="nav-count" id="nav-node-count">—</span></button>
+      <button class="nav-item" data-view="aliases"><svg><use href="#icon-terminal"/></svg><span>命令别名</span><span class="nav-count" id="nav-alias-count">—</span></button>
+    </nav>
+    <div class="sidebar-note"><span class="status-dot"></span><strong>配置，随时就绪</strong><p>网页与命令行共用配置。<br>保存后，下一次运行即可使用。</p><code>proxy serve</code></div>
+    <div class="sidebar-version" id="app-version">v—</div>
+    <button class="sidebar-update" id="update-available" type="button" hidden><svg aria-hidden="true"><use href="#icon-arrow"/></svg><span>发现新版本 <span id="latest-version"></span></span></button>
+  </aside>
+  <div class="workspace">
+    <header class="topbar"><div><span class="muted">工作空间</span><span class="breadcrumb-separator">/</span><span id="breadcrumb">代理配置</span></div><div class="topbar-actions"><button class="theme-toggle" id="theme-toggle" type="button" aria-label="切换到深色模式" aria-pressed="false" title="切换到深色模式"><svg class="icon-moon" aria-hidden="true"><use href="#icon-moon"/></svg><svg class="icon-sun" aria-hidden="true"><use href="#icon-sun"/></svg></button><span class="local-badge"><span class="status-dot"></span>本地管理</span></div></header>
+    <main id="main">
+      <div class="page-heading"><div><div class="eyebrow">PROXY WORKSPACE</div><h1 id="page-title">代理配置</h1></div><div class="heading-actions"><button class="button" id="refresh"><svg><use href="#icon-refresh"/></svg>刷新</button><button class="button primary" id="add-entry" data-write disabled><span aria-hidden="true">＋</span><span id="add-entry-label">添加节点</span></button></div></div>
+      <div class="error-banner" id="connection-error" role="alert" hidden></div>
+      <noscript><div class="error-banner">请启用 JavaScript，以读取和管理配置。</div></noscript>
+      <section class="overview" aria-label="配置概览">
+        <div class="overview-item"><span class="overview-icon"><svg><use href="#icon-arrow"/></svg></span><div><span class="metric-label">当前节点</span><strong id="active-node">加载中…</strong><span class="metric-detail" id="active-address">正在读取配置</span></div></div>
+        <div class="overview-item"><span class="overview-icon"><svg><use href="#icon-nodes"/></svg></span><div><span class="metric-label">已保存节点</span><strong id="node-count">—</strong><span class="metric-detail">按需切换，一键启用</span></div></div>
+        <div class="overview-item"><span class="overview-icon"><svg><use href="#icon-terminal"/></svg></span><div><span class="metric-label">命令别名</span><strong id="alias-count">—</strong><span class="metric-detail" id="platform-detail">支持四种平台范围</span></div></div>
+      </section>
+      <div id="proxies-view">
+        <section class="panel current-panel" aria-labelledby="current-title">
+          <div class="panel-heading"><div><div class="title-line"><h2 id="current-title">当前代理</h2><span class="badge green" id="current-node-badge">当前配置</span></div><p id="current-description">配置下一次命令使用的代理连接。</p></div><button class="text-button" id="unlink" data-write hidden>解除节点关联</button></div>
+          <form id="current-form">
+            <fieldset disabled>
+              <div class="proxy-fields current-fields"><label>代理协议<select name="protocol" required><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks5">SOCKS5</option><option value="socks4">SOCKS4</option></select></label><label class="host-field">主机地址<input name="host" required maxlength="255" placeholder="127.0.0.1" autocomplete="off" spellcheck="false"></label><label>端口<input name="port" type="number" min="1" max="65535" step="1" required placeholder="7890"></label></div>
+              <details class="auth-fields"><summary>身份验证 <span>可选</span></summary><div class="form-grid"><label>用户名<input name="username" maxlength="4096" autocomplete="off" placeholder="未设置"></label><label>密码<span class="password-field"><input name="password" type="password" maxlength="4096" autocomplete="new-password" placeholder="未设置"><button type="button" class="password-toggle" aria-label="显示密码" aria-pressed="false">显示</button></span></label></div></details>
+            </fieldset>
+            <div class="form-footer"><span class="save-note" id="current-save-note">修改后点击保存</span><div class="form-actions"><button class="text-button danger" id="reset-config" type="button" data-write disabled>恢复默认</button><button class="button" id="save-as-node" type="button" data-write disabled>另存为节点</button><button class="button primary" type="submit" data-write disabled>保存配置</button></div></div>
+          </form>
+        </section>
+        <section class="panel" aria-labelledby="nodes-title">
+          <div class="panel-heading table-heading"><div><h2 id="nodes-title">代理节点 <span class="count-label" id="nodes-list-count">0</span></h2><p>为不同环境保存独立配置。</p></div><label class="search-field"><svg><use href="#icon-search"/></svg><input id="node-search" type="search" placeholder="搜索名称、地址或协议" aria-label="搜索代理节点"></label></div>
+          <div class="table-scroll"><table><thead><tr><th class="drag-column"><span class="sr-only">调整顺序</span></th><th class="index-column">序号</th><th>节点名称</th><th>代理地址</th><th>身份验证</th><th class="actions-column">操作</th></tr></thead><tbody id="node-rows"></tbody></table></div>
+          <div class="empty-state" id="nodes-empty"><svg><use href="#icon-nodes"/></svg><h3>正在读取节点…</h3><p>稍等片刻，配置即将就绪。</p></div>
+          <div class="table-note sort-note" id="node-sort-help"><svg><use href="#icon-grip"/></svg><span>拖动左侧手柄调整顺序，松开自动保存。节点序号会同步更新。</span></div>
+        </section>
+      </div>
+      <div id="aliases-view" hidden>
+        <section class="panel" aria-labelledby="aliases-title">
+          <div class="panel-heading table-heading"><div><h2 id="aliases-title">命令别名 <span class="count-label" id="aliases-list-count">0</span></h2><p>用一个简短名称，执行常用命令。</p></div><div class="table-filters"><label class="search-field"><svg><use href="#icon-search"/></svg><input id="alias-search" type="search" placeholder="搜索别名或命令" aria-label="搜索别名"></label><select id="platform-filter" aria-label="筛选别名平台"><option value="*">全部平台</option><option value="all">通用 · all</option><option value="windows">Windows</option><option value="linux">Linux</option><option value="macos">macOS</option></select></div></div>
+          <div class="table-scroll"><table><thead><tr><th class="drag-column"><span class="sr-only">调整顺序</span></th><th>别名</th><th>命令</th><th>适用平台</th><th class="actions-column">操作</th></tr></thead><tbody id="alias-rows"></tbody></table></div>
+          <div class="empty-state" id="aliases-empty"><svg><use href="#icon-terminal"/></svg><h3>正在读取别名…</h3><p>稍等片刻，配置即将就绪。</p></div>
+          <div class="table-note sort-note" id="alias-sort-help"><svg><use href="#icon-grip"/></svg><span>拖动左侧手柄调整顺序，松开自动保存。平台匹配规则保持不变。</span></div>
+        </section>
+        <div class="usage-note"><svg><use href="#icon-terminal"/></svg><div><strong>少敲几个字，专注手头的事。</strong><p>例如，将 <code>gs</code> 配置为 <code>git status</code>，之后运行 <code>proxy gs</code> 即可。</p></div></div>
+      </div>
+      <footer class="page-footer"><span>PROXY <span class="footer-dot">/</span> 简单连接，自由切换</span><span>本地配置管理</span></footer>
+    </main>
+  </div>
+  <dialog id="editor-dialog" aria-labelledby="editor-title">
+    <form id="editor-form"><div class="dialog-heading"><div><div class="eyebrow" id="editor-eyebrow">PROXY NODE</div><h2 id="editor-title">添加节点</h2></div><button class="dialog-close" type="button" aria-label="关闭编辑窗口">×</button></div><p class="dialog-description" id="editor-description"></p><div class="form-error" id="editor-error" role="alert" hidden></div><fieldset id="editor-fields"></fieldset><div class="dialog-footer"><button class="button dialog-cancel" type="button">取消</button><button class="button primary" id="editor-submit" type="submit" data-write>保存节点</button></div></form>
+  </dialog>
+  <template id="node-editor-template"><label>节点名称<input name="name" required maxlength="128" placeholder="例如：本地开发" autocomplete="off"></label><div class="proxy-fields"><label>代理协议<select name="protocol" required><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks5">SOCKS5</option><option value="socks4">SOCKS4</option></select></label><label class="host-field">主机地址<input name="host" required maxlength="255" placeholder="127.0.0.1" autocomplete="off" spellcheck="false"></label><label>端口<input name="port" type="number" min="1" max="65535" step="1" required placeholder="7890"></label></div><div class="form-divider">身份验证 <span>可选</span></div><div class="form-grid"><label>用户名<input name="username" maxlength="4096" autocomplete="off" placeholder="未设置"></label><label>密码<span class="password-field"><input name="password" type="password" maxlength="4096" autocomplete="new-password" placeholder="未设置"><button type="button" class="password-toggle" aria-label="显示密码" aria-pressed="false">显示</button></span></label></div></template>
+  <template id="alias-editor-template"><div class="form-grid"><label>别名名称<input name="name" required maxlength="128" pattern="[^\s]+" title="别名不能包含空白字符" placeholder="例如：gs" autocomplete="off" spellcheck="false"></label><label>适用平台<select name="platform" required><option value="all">通用 · all</option><option value="windows">Windows</option><option value="linux">Linux</option><option value="macos">macOS</option></select></label></div><label>执行命令<textarea name="command" required maxlength="16384" rows="4" placeholder="例如：git status" spellcheck="false"></textarea></label><p class="field-hint">只保存命令配置。运行 <code>proxy &lt;别名&gt;</code> 时执行，并可在后面追加参数。</p></template>
+  <dialog id="update-dialog" aria-labelledby="update-title">
+    <div class="update-dialog-body"><div class="dialog-heading"><div><div class="eyebrow">RELEASE NOTES</div><h2 id="update-title">发现新版本</h2></div><button class="dialog-close" type="button" aria-label="关闭更新日志">×</button></div><p class="dialog-description" id="update-meta"></p><div class="release-notes" id="update-notes"></div><div class="dialog-footer"><a class="button primary" id="update-link" href="https://github.com/zhilv666/proxy/releases/latest" target="_blank" rel="noopener">前往 GitHub 下载</a></div></div>
+  </dialog>
+  <div id="notification" class="notification" role="status" aria-live="polite" hidden></div>
+  <p id="sort-instructions" class="sr-only">可拖动排序手柄，也可聚焦后按上、下方向键调整顺序，Home 移到首位，End 移到末位。按 Escape 取消拖动。</p>
+</body>
+</html>
