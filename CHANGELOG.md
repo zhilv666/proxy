@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.5.0] - 2026-09-09
+
+### 新增
+- ✨ feat(serve): 新增浏览器网页配置管理功能 (ea67ccf)
+- ✨ feat(shell): 新增 proxy on 进入代理子 shell (7ae3f0e)
+
+### 修复
+- 🐛 fix(help): help 输出末尾补换行 (1ae759a)
+- 🐛 fix(shell): Git Bash 下 proxy on 误进 PowerShell (dca1adf)
+
+### 其他
+- ♻️ refactor(help): 移除各命令 help 中的 Examples 段 (3b81057)
+- ♻️ refactor(core): CLI 输出统一改为英文 (deeb6e0)
+- 🔧 chore(core): 移除 screen/tui 及配套 demo,构建时间改东八区 (cd463ef)
+- chore: 更新 v1.4.2 包管理器清单 (b0203e7)
+
 ## [1.4.2] - 2026-08-22
 
 ### 新增
