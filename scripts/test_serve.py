@@ -210,6 +210,10 @@ class ServeTests(unittest.TestCase):
         self.api('DELETE', '/api/aliases', {'platform': 'linux', 'name': 'new-name'})
         self.api('DELETE', '/api/aliases', {'platform': 'linux', 'name': 'new-name'}, 404)
         self.assertEqual(len(self.api('GET', '/api/aliases')), 2)
+        # Multi-line commands round-trip; browser CRLF is normalised to LF.
+        self.api('POST', '/api/aliases', {'platform': 'all', 'name': 'multi', 'command': 'echo one\r\necho two\r\n'}, 201)
+        self.assertEqual(next(a['command'] for a in self.api('GET', '/api/aliases') if a['name'] == 'multi'), 'echo one\necho two\n')
+        self.assertIn('multi -> echo one', self.cli('alias', 'list'))
 
     def test_persistence_after_restart_and_cli_updates(self):
         self.cli('config', 'set', 'host', '192.0.2.5')

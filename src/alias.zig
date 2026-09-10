@@ -56,6 +56,7 @@ fn saveAliases(aliases: std.json.Value) !void {
 
 pub fn add(allocator: std.mem.Allocator, platform_str: []const u8, alias_name: []const u8, command: []const u8) !void {
     const platform = Platform.fromString(platform_str) orelse return error.InvalidPlatform;
+    if (std.mem.trim(u8, command, " \t\r\n").len == 0) return error.EmptyAlias;
 
     var parsed = try loadAliases(allocator);
     defer parsed.deinit();
@@ -315,58 +316,129 @@ pub fn list(allocator: std.mem.Allocator) !void {
 
             var alias_it = aliases.iterator();
             while (alias_it.next()) |alias_entry| {
-                try writer.print("  {s} -> {s}\n", .{ alias_entry.key_ptr.*, alias_entry.value_ptr.string });
+                // 多行命令：首行跟在名字后，续行缩进对齐
+                var lines = std.mem.splitScalar(u8, alias_entry.value_ptr.string, '\n');
+                var first = true;
+                while (lines.next()) |raw| {
+                    const line = std.mem.trim(u8, raw, " \t\r");
+                    if (line.len == 0) continue;
+                    if (first) {
+                        try writer.print("  {s} -> {s}\n", .{ alias_entry.key_ptr.*, line });
+                        first = false;
+                    } else {
+                        try writer.writeAll("  ");
+                        for (0..alias_entry.key_ptr.len + 4) |_| try writer.writeAll(" ");
+                        try writer.print("{s}\n", .{line});
+                    }
+                }
             }
             try writer.writeAll("\n");
         }
     }
 }
 
-pub fn resolve(allocator: std.mem.Allocator, args: []const []const u8) ![][]const u8 {
-    if (args.len == 0) return try allocator.dupe([]const u8, args);
+/// 解析后的命令序列：每个元素是一行命令的 argv，按顺序执行。
+pub const Commands = [][][]const u8;
 
-    const parsed = try loadAliases(allocator);
-    defer parsed.deinit();
-
-    const root = parsed.value.object;
-    const current_platform = Platform.current();
-
-    // Try current platform first
-    if (root.get(current_platform.toString())) |platform_value| {
-        if (platform_value.object.get(args[0])) |command_value| {
-            return try expandAlias(allocator, command_value.string, args[1..]);
-        }
+pub fn freeCommands(allocator: std.mem.Allocator, commands: Commands) void {
+    for (commands) |argv| {
+        for (argv) |arg| allocator.free(arg);
+        allocator.free(argv);
     }
-
-    // Try "all" platform
-    if (root.get("all")) |platform_value| {
-        if (platform_value.object.get(args[0])) |command_value| {
-            return try expandAlias(allocator, command_value.string, args[1..]);
-        }
-    }
-
-    // No alias found, return original args
-    var result = try allocator.alloc([]const u8, args.len);
-    for (args, 0..) |arg, i| {
-        result[i] = try allocator.dupe(u8, arg);
-    }
-    return result;
+    allocator.free(commands);
 }
 
-fn expandAlias(allocator: std.mem.Allocator, command: []const u8, extra_args: []const []const u8) ![][]const u8 {
-    // Parse command into parts
-    var parts: std.ArrayList([]const u8) = .{};
-    defer parts.deinit(allocator);
+/// 把首个参数按别名展开。命中时返回别名的每一行命令（追加参数拼到最后一行）；
+/// 未命中时返回单条原样命令。
+pub fn resolve(allocator: std.mem.Allocator, args: []const []const u8) !Commands {
+    if (args.len != 0) {
+        const parsed = try loadAliases(allocator);
+        defer parsed.deinit();
 
-    var it = std.mem.tokenizeAny(u8, command, " \t");
-    while (it.next()) |part| {
-        try parts.append(allocator, try allocator.dupe(u8, part));
+        const root = parsed.value.object;
+        const current_platform = Platform.current();
+
+        // Try current platform first
+        if (root.get(current_platform.toString())) |platform_value| {
+            if (platform_value.object.get(args[0])) |command_value| {
+                return try expandAlias(allocator, command_value.string, args[1..]);
+            }
+        }
+
+        // Try "all" platform
+        if (root.get("all")) |platform_value| {
+            if (platform_value.object.get(args[0])) |command_value| {
+                return try expandAlias(allocator, command_value.string, args[1..]);
+            }
+        }
     }
 
-    // Add extra args
-    for (extra_args) |arg| {
-        try parts.append(allocator, try allocator.dupe(u8, arg));
+    // No alias found, return original args as a single command
+    const argv = try allocator.alloc([]const u8, args.len);
+    var filled: usize = 0;
+    errdefer {
+        for (argv[0..filled]) |arg| allocator.free(arg);
+        allocator.free(argv);
+    }
+    for (args) |arg| {
+        argv[filled] = try allocator.dupe(u8, arg);
+        filled += 1;
+    }
+    const commands = try allocator.alloc([][]const u8, 1);
+    commands[0] = argv;
+    return commands;
+}
+
+fn expandAlias(allocator: std.mem.Allocator, command: []const u8, extra_args: []const []const u8) !Commands {
+    var commands: std.ArrayList([][]const u8) = .{};
+    errdefer {
+        for (commands.items) |argv| {
+            for (argv) |arg| allocator.free(arg);
+            allocator.free(argv);
+        }
+        commands.deinit(allocator);
     }
 
-    return parts.toOwnedSlice(allocator);
+    // 每个非空行是一条命令；行内按空白切分为 argv
+    var lines = std.mem.splitScalar(u8, command, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \t\r");
+        if (line.len == 0) continue;
+        var parts: std.ArrayList([]const u8) = .{};
+        errdefer {
+            for (parts.items) |arg| allocator.free(arg);
+            parts.deinit(allocator);
+        }
+        var it = std.mem.tokenizeAny(u8, line, " \t");
+        while (it.next()) |part| {
+            try parts.append(allocator, try allocator.dupe(u8, part));
+        }
+        try commands.append(allocator, try parts.toOwnedSlice(allocator));
+    }
+    if (commands.items.len == 0) return error.EmptyAlias;
+
+    // 追加参数拼到最后一行
+    if (extra_args.len != 0) {
+        const last = commands.items[commands.items.len - 1];
+        var parts: std.ArrayList([]const u8) = .{};
+        defer parts.deinit(allocator);
+        try parts.appendSlice(allocator, last);
+        for (extra_args) |arg| {
+            try parts.append(allocator, try allocator.dupe(u8, arg));
+        }
+        allocator.free(last);
+        commands.items[commands.items.len - 1] = try parts.toOwnedSlice(allocator);
+    }
+
+    return commands.toOwnedSlice(allocator);
+}
+
+test "expandAlias splits lines and appends extra args to the last line" {
+    const allocator = std.testing.allocator;
+    const commands = try expandAlias(allocator, "echo  one\r\n\n  git status\t--short \n", &.{ "-b", "x" });
+    defer freeCommands(allocator, commands);
+    try std.testing.expectEqual(@as(usize, 2), commands.len);
+    try std.testing.expectEqualDeep(&[_][]const u8{ "echo", "one" }, commands[0]);
+    try std.testing.expectEqualDeep(&[_][]const u8{ "git", "status", "--short", "-b", "x" }, commands[1]);
+    try std.testing.expectError(error.EmptyAlias, expandAlias(allocator, " \n\t\n", &.{}));
 }

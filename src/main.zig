@@ -181,7 +181,13 @@ fn handleAlias(allocator: std.mem.Allocator, args: []const []const u8) !void {
             output.print("error: platform, alias and command are required\nusage: proxy alias add <platform> <alias> <command>\n", .{});
             return;
         }
-        try Alias.add(allocator, args[1], args[2], args[3]);
+        Alias.add(allocator, args[1], args[2], args[3]) catch |err| switch (err) {
+            error.EmptyAlias => {
+                output.print("error: command must not be empty\n", .{});
+                return;
+            },
+            else => return err,
+        };
         output.print("alias added: {s} ({s}) -> {s}\n", .{ args[2], args[1], args[3] });
     } else if (std.mem.eql(u8, subcommand, "remove")) {
         if (args.len < 3) {
@@ -212,6 +218,11 @@ fn printAliasHelp() void {
         \\
         \\ Platforms:
         \\   windows, linux, macos, all          all = every platform
+        \\
+        \\ Command:
+        \\   May span several lines; each non-empty line runs in order and
+        \\   the first failing line stops the rest. Extra arguments passed to
+        \\   proxy <alias> are appended to the last line.
         \\
     ;
     output.print("{s}", .{help});
@@ -399,14 +410,9 @@ fn execWithProxy(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var config = try Config.load(allocator);
     defer config.deinit();
 
-    // Check if first arg is an alias
-    const resolved_args = try Alias.resolve(allocator, args);
-    defer {
-        for (resolved_args) |arg| {
-            allocator.free(arg);
-        }
-        allocator.free(resolved_args);
-    }
+    // Check if first arg is an alias; a multi-line alias yields several commands
+    const commands = try Alias.resolve(allocator, args);
+    defer Alias.freeCommands(allocator, commands);
 
     // Build proxy URL
     const proxy_url = try config.buildProxyUrl(allocator);
@@ -418,15 +424,21 @@ fn execWithProxy(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
     try Config.putProxyEnv(&env_map, proxy_url);
 
-    // Execute command
-    var child = std.process.Child.init(resolved_args, allocator);
-    child.env_map = &env_map;
-    child.stdin_behavior = .Inherit;
-    child.stdout_behavior = .Inherit;
-    child.stderr_behavior = .Inherit;
+    // Execute commands in order; stop at the first failure
+    for (commands) |argv| {
+        var child = std.process.Child.init(argv, allocator);
+        child.env_map = &env_map;
+        child.stdin_behavior = .Inherit;
+        child.stdout_behavior = .Inherit;
+        child.stderr_behavior = .Inherit;
 
-    const term = try child.spawnAndWait();
-    std.process.exit(term.Exited);
+        const term = try child.spawnAndWait();
+        switch (term) {
+            .Exited => |code| if (code != 0) std.process.exit(code),
+            else => std.process.exit(1),
+        }
+    }
+    std.process.exit(0);
 }
 
 test {

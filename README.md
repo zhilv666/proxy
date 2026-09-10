@@ -262,6 +262,13 @@ proxy open        # Windows 上 → explorer . ; macOS 上 → open .
 proxy gs --short  # 追加参数原样传递 → git status --short
 ```
 
+命令可以写多行，每行一条，按顺序执行；某行退出码非 0 即停止，追加参数拼到最后一行。多行别名不经过 shell，因此不支持 `&&`、管道等 shell 语法：
+
+```bash
+proxy alias add all sync $'git fetch --all\ngit pull --ff-only'
+proxy sync        # 先 git fetch --all，成功后再 git pull --ff-only
+```
+
 </details>
 
 <details>
