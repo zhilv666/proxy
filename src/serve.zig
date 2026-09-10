@@ -313,8 +313,10 @@ fn route(state: *State, allocator: std.mem.Allocator, request: Request) !Respons
             return ok();
         }
         try validateName(name, true);
-        const command = try requiredString(object, "command");
-        if (std.mem.trim(u8, command, " \t\r\n").len == 0 or command.len > 16384 or std.mem.indexOfScalar(u8, command, 0) != null) return error.InvalidAliasCommand;
+        const raw_command = try requiredString(object, "command");
+        if (std.mem.trim(u8, raw_command, " \t\r\n").len == 0 or raw_command.len > 16384 or std.mem.indexOfScalar(u8, raw_command, 0) != null) return error.InvalidAliasCommand;
+        // 浏览器 textarea 会提交 \r\n，统一按 \n 保存
+        const command = try std.mem.replaceOwned(u8, allocator, raw_command, "\r\n", "\n");
         try Alias.storeEntry(allocator, .{ .platform = platform, .name = name, .command = command }, if (method == .PUT)
             .{ .platform = try requiredString(object, "original_platform"), .name = try requiredString(object, "original_name") }
         else

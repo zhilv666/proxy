@@ -90,16 +90,18 @@ proxy config get
 # 添加通用别名
 proxy alias add all gs "git status"
 proxy alias add all gp "git pull"
-proxy alias add all update "apt update && apt upgrade -y"
 
 # 添加平台特定别名
 proxy alias add windows cmd "cmd.exe /c"
 proxy alias add linux cat "cat -n"
-proxy alias add macos brew "brew update && brew upgrade"
+
+# 多行别名：每行一条命令，按顺序执行，某行失败即停止（不经过 shell，不支持 && 或管道）
+proxy alias add linux update $'sudo apt update\nsudo apt upgrade -y'
+proxy alias add macos brew $'brew update\nbrew upgrade'
 
 # 使用自定义别名
 proxy gs       # 执行 git status
-proxy update   # 执行 apt update && apt upgrade -y
+proxy update   # 先 sudo apt update，再 sudo apt upgrade -y
 ```
 
 ### 管理别名
@@ -133,8 +135,8 @@ proxy git clone https://github.com/vendor/library.git
 ### 场景 2: 系统更新（Linux）
 
 ```bash
-# 添加更新别名
-proxy alias add linux update "apt update && apt upgrade -y"
+# 添加更新别名（多行，按顺序执行）
+proxy alias add linux update $'apt update\napt upgrade -y'
 
 # 使用别名更新系统
 proxy update

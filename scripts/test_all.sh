@@ -41,6 +41,28 @@ echo ">>> 测试别名删除..."
 echo "✓ 别名删除正常"
 echo
 
+echo ">>> 测试多行别名..."
+./zig-out/bin/proxy alias add all multi $'echo one\necho two' 2>&1 | grep -v "error(gpa)" > /dev/null
+./zig-out/bin/proxy alias list 2>&1 | grep -q "multi -> echo one"
+multi_output=$(./zig-out/bin/proxy multi extra 2>&1)
+echo "$multi_output" | grep -q "^one"
+echo "$multi_output" | grep -q "^two extra"
+# 首行失败时后续行不执行，且退出码非 0
+./zig-out/bin/proxy alias add all multifail $'proxy-no-such-command-xyz\necho after' 2>&1 | grep -v "error(gpa)" > /dev/null
+if fail_output=$(./zig-out/bin/proxy multifail 2>&1); then
+    echo "expected multifail to exit non-zero"; exit 1
+fi
+if echo "$fail_output" | grep -q "^after"; then
+    echo "second line ran after first line failed"; exit 1
+fi
+if ./zig-out/bin/proxy alias add all blank $'  \n\t' 2>&1 | grep -q "alias added"; then
+    echo "blank command was accepted"; exit 1
+fi
+./zig-out/bin/proxy alias remove all multi 2>&1 | grep -v "error(gpa)" > /dev/null
+./zig-out/bin/proxy alias remove all multifail 2>&1 | grep -v "error(gpa)" > /dev/null
+echo "✓ 多行别名正常"
+echo
+
 echo "======================================"
 echo "  ✓ 所有测试通过！"
 echo "======================================"
