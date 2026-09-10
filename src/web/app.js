@@ -541,7 +541,6 @@ function openEditor(kind, original = null) {
   editorForm.reset();
   $('#editor-fields').replaceChildren($(`#${kind}-editor-template`).content.cloneNode(true));
   const isAlias = kind === 'alias';
-  $('#editor-eyebrow').textContent = isAlias ? 'COMMAND ALIAS' : 'PROXY NODE';
   $('#editor-title').textContent = `${original ? '编辑' : '添加'}${isAlias ? '别名' : '节点'}`;
   $('#editor-description').textContent = isAlias ? '设置名称、命令及适用平台，保存后即可在命令行使用。' : original?.name === state.config.node ? '这是当前使用的节点，保存后会同步更新当前代理。' : '保存独立的代理配置，需要时再启用。';
   const values = isAlias ? original || { name: '', platform: 'all', command: '' } : { ...effective(original || defaults), name: original?.name || '' };
