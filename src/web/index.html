@@ -44,16 +44,6 @@
         <div class="overview-item"><span class="overview-icon"><svg><use href="#icon-terminal"/></svg></span><div><span class="metric-label">命令别名</span><strong id="alias-count">—</strong><span class="metric-detail" id="platform-detail">支持四种平台范围</span></div></div>
       </section>
       <div id="proxies-view">
-        <section class="panel current-panel" aria-labelledby="current-title">
-          <div class="panel-heading"><div><div class="title-line"><h2 id="current-title">当前代理</h2><span class="badge green" id="current-node-badge">当前配置</span></div><p id="current-description">配置下一次命令使用的代理连接。</p></div><button class="text-button" id="unlink" data-write hidden>解除节点关联</button></div>
-          <form id="current-form">
-            <fieldset disabled>
-              <div class="proxy-fields current-fields"><label>代理协议<select name="protocol" required><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks5">SOCKS5</option><option value="socks4">SOCKS4</option></select></label><label class="host-field">主机地址<input name="host" required maxlength="255" placeholder="127.0.0.1" autocomplete="off" spellcheck="false"></label><label>端口<input name="port" type="number" min="1" max="65535" step="1" required placeholder="7890"></label></div>
-              <details class="auth-fields"><summary>身份验证 <span>可选</span></summary><div class="form-grid"><label>用户名<input name="username" maxlength="4096" autocomplete="off" placeholder="未设置"></label><label>密码<span class="password-field"><input name="password" type="password" maxlength="4096" autocomplete="new-password" placeholder="未设置"><button type="button" class="password-toggle" aria-label="显示密码" aria-pressed="false">显示</button></span></label></div></details>
-            </fieldset>
-            <div class="form-footer"><span class="save-note" id="current-save-note">修改后点击保存</span><div class="form-actions"><button class="text-button danger" id="reset-config" type="button" data-write disabled>恢复默认</button><button class="button" id="save-as-node" type="button" data-write disabled>另存为节点</button><button class="button primary" type="submit" data-write disabled>保存配置</button></div></div>
-          </form>
-        </section>
         <section class="panel" aria-labelledby="nodes-title">
           <div class="panel-heading table-heading"><div><h2 id="nodes-title">代理节点 <span class="count-label" id="nodes-list-count">0</span></h2><p>为不同环境保存独立配置。</p></div><label class="search-field"><svg><use href="#icon-search"/></svg><input id="node-search" type="search" placeholder="搜索名称、地址或协议" aria-label="搜索代理节点"></label></div>
           <div class="table-scroll"><table><thead><tr><th class="drag-column"><span class="sr-only">调整顺序</span></th><th class="index-column">序号</th><th>节点名称</th><th>代理地址</th><th>身份验证</th><th class="actions-column">操作</th></tr></thead><tbody id="node-rows"></tbody></table></div>

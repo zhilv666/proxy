@@ -74,7 +74,9 @@ try:
         page.on('dialog', lambda dialog: dialog.accept())
         page.goto(url)
         expect(page.locator('#node-rows tr')).to_have_count(4)
-        page.locator('#current-form [name=port]').fill('9009')
+        expect(page.locator('#active-node')).to_have_text('本地开发')
+        expect(page.locator('#active-address')).to_have_text(f"{current['protocol']}://{current['host']}:{current['port']}")
+        assert page.locator('#current-form').count() == 0
 
         mouse_move(page, 'nodes', '备用节点', '本地开发')
         wait_order(page, 'nodes', ['备用节点', '本地开发', '公司内网', '香港节点'])
@@ -92,10 +94,9 @@ try:
         wait_order(page, 'nodes', ['备用节点', '香港节点'])
         page.locator('#node-search').fill('')
         wait_order(page, 'nodes', ['备用节点', '本地开发', '香港节点', '公司内网'])
-        expect(page.locator('#current-form [name=port]')).to_have_value('9009')
         assert fixture.api('GET', '/api/config') == current
         page.locator('#refresh').click()
-        expect(page.locator('#current-form [name=port]')).to_have_value('7890')
+        expect(page.locator('#refresh')).to_be_enabled()
 
         # A failed save must retain the visible order and the data on disk.
         before = keys(page, 'nodes')

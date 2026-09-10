@@ -3,14 +3,12 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const platforms = { all: '通用 · all', windows: 'Windows', linux: 'Linux', macos: 'macOS' };
 const defaults = { host: '127.0.0.1', port: '7890', protocol: 'http', username: '', password: '' };
-const currentForm = $('#current-form');
 const editorDialog = $('#editor-dialog');
 const editorForm = $('#editor-form');
 let state = null;
 let view = 'proxies';
 let connected = false;
 let busy = false;
-let currentDirty = false;
 let editing = null;
 let notificationTimer;
 let sortSession = null;
@@ -185,7 +183,6 @@ function setControls() {
   document.querySelectorAll('.drag-handle').forEach(button => {
     button.disabled ||= button.closest('tbody').children.length < 2;
   });
-  $('fieldset', currentForm).disabled = busy || !connected;
   $('#editor-fields').disabled = busy;
   $('#refresh').disabled = busy;
   $('#editor-dialog .dialog-close').disabled = busy;
@@ -223,13 +220,7 @@ function fillForm(form, values) {
   }
 }
 
-function markDirty(dirty) {
-  currentDirty = dirty;
-  $('#current-save-note').textContent = dirty ? '有未保存的修改' : '修改后点击保存';
-  $('#current-save-note').classList.toggle('dirty', dirty);
-}
-
-function applyState(next, forceCurrent = false) {
+function applyState(next) {
   state = next;
   connected = true;
   $('#connection-error').hidden = true;
@@ -246,14 +237,6 @@ function applyState(next, forceCurrent = false) {
     versionEl.textContent = `v${state.version}`;
     versionEl.title = state.commit ? `编译版本 ${state.version}（提交 ${state.commit}）` : `编译版本 ${state.version}`;
   }
-  if (!currentDirty || forceCurrent) {
-    fillForm(currentForm, config);
-    $('#current-node-badge').textContent = config.node ? `已关联 · ${config.node}` : '独立配置';
-    $('#current-description').textContent = config.node ? '保存时会同步更新已关联的节点。' : '配置下一次命令使用的代理连接。';
-    $('#unlink').hidden = !config.node;
-    $('.auth-fields', currentForm).open = !!(config.username || config.password);
-    markDirty(false);
-  }
   renderNodes();
   renderAliases();
   setControls();
@@ -263,15 +246,14 @@ function applyState(next, forceCurrent = false) {
   }
 }
 
-async function refresh(askToDiscard = false) {
+async function refresh(announce = false) {
   if (busy) return;
   cancelSort();
-  if (askToDiscard && !canDiscardCurrent()) return;
   busy = true;
   setControls();
   try {
-    applyState(await api('/api/state'), askToDiscard);
-    if (askToDiscard) notify('已读取最新配置');
+    applyState(await api('/api/state'));
+    if (announce) notify('已读取最新配置');
   } catch (error) {
     showConnectionError(error.message);
   } finally {
@@ -280,11 +262,7 @@ async function refresh(askToDiscard = false) {
   }
 }
 
-function canDiscardCurrent() {
-  return !currentDirty || window.confirm('当前代理有未保存的修改。继续后将放弃这些修改，是否继续？');
-}
-
-async function mutate(path, method, payload, message, { closeEditor = false, forceCurrent = false } = {}) {
+async function mutate(path, method, payload, message, { closeEditor = false } = {}) {
   if (busy || !connected) return;
   busy = true;
   setControls();
@@ -292,9 +270,8 @@ async function mutate(path, method, payload, message, { closeEditor = false, for
   try {
     await api(path, method, payload);
     if (closeEditor) editorDialog.close();
-    if (forceCurrent) markDirty(false);
     try {
-      applyState(await api('/api/state'), forceCurrent);
+      applyState(await api('/api/state'));
       notify(message);
     } catch (error) {
       showConnectionError(`${message}，但无法读取最新状态。${error.message}`);
@@ -486,16 +463,15 @@ function renderNodes() {
       actions.append(element('span', 'active-label', '使用中'));
     } else {
       const activate = rowButton('启用', () => {
-        if (canDiscardCurrent()) mutate('/api/nodes/activate', 'POST', { name: node.name }, `已启用节点「${node.name}」`, { forceCurrent: true });
+        mutate('/api/nodes/activate', 'POST', { name: node.name }, `已启用节点「${node.name}」`);
       });
       activate.classList.add('activate-button');
       actions.append(activate);
     }
     actions.append(rowButton('编辑', () => openEditor('node', node)), rowButton('删除', () => {
-      if (isActive && !canDiscardCurrent()) return;
-      const detail = isActive ? '删除后会保留当前代理参数，并解除节点关联。' : '此操作无法撤销。';
+      const detail = isActive ? '删除后当前配置会保留代理参数并解除节点关联。' : '此操作无法撤销。';
       if (window.confirm(`删除节点「${node.name}」？${detail}`)) {
-        mutate('/api/nodes', 'DELETE', { name: node.name }, '节点已删除', { forceCurrent: isActive });
+        mutate('/api/nodes', 'DELETE', { name: node.name }, '节点已删除');
       }
     }, true));
     actionsCell.append(actions);
@@ -559,7 +535,7 @@ function switchView(next) {
   });
 }
 
-function openEditor(kind, original = null, initial = null) {
+function openEditor(kind, original = null) {
   if (busy || !connected) return;
   editing = { kind, original };
   editorForm.reset();
@@ -568,7 +544,7 @@ function openEditor(kind, original = null, initial = null) {
   $('#editor-eyebrow').textContent = isAlias ? 'COMMAND ALIAS' : 'PROXY NODE';
   $('#editor-title').textContent = `${original ? '编辑' : '添加'}${isAlias ? '别名' : '节点'}`;
   $('#editor-description').textContent = isAlias ? '设置名称、命令及适用平台，保存后即可在命令行使用。' : original?.name === state.config.node ? '这是当前使用的节点，保存后会同步更新当前代理。' : '保存独立的代理配置，需要时再启用。';
-  const values = isAlias ? original || { name: '', platform: 'all', command: '' } : { ...effective(initial || original || defaults), name: original?.name || '' };
+  const values = isAlias ? original || { name: '', platform: 'all', command: '' } : { ...effective(original || defaults), name: original?.name || '' };
   fillForm(editorForm, values);
   $('#editor-error').hidden = true;
   setControls();
@@ -582,39 +558,18 @@ $('#add-entry').addEventListener('click', () => openEditor(view === 'aliases' ? 
 $('#node-search').addEventListener('input', () => { cancelSort(); renderNodes(); setControls(); });
 $('#alias-search').addEventListener('input', () => { cancelSort(); renderAliases(); setControls(); });
 $('#platform-filter').addEventListener('change', () => { cancelSort(); renderAliases(); setControls(); });
-currentForm.addEventListener('input', () => markDirty(true));
-currentForm.addEventListener('submit', event => {
-  event.preventDefault();
-  if (!currentForm.reportValidity()) return;
-  const payload = Object.fromEntries(new FormData(currentForm));
-  payload.host = payload.host.trim();
-  mutate('/api/config', 'PUT', payload, '代理配置已保存', { forceCurrent: true });
-});
-$('#save-as-node').addEventListener('click', () => {
-  if (currentForm.reportValidity()) openEditor('node', null, Object.fromEntries(new FormData(currentForm)));
-});
-$('#reset-config').addEventListener('click', () => {
-  if (window.confirm('将当前代理恢复为 http://127.0.0.1:7890，清空认证信息并解除节点关联？已保存的节点和别名会保留。')) {
-    mutate('/api/config', 'DELETE', {}, '当前代理已恢复默认', { forceCurrent: true });
-  }
-});
-$('#unlink').addEventListener('click', () => {
-  if (canDiscardCurrent()) mutate('/api/nodes/unlink', 'POST', {}, '已解除节点关联', { forceCurrent: true });
-});
 editorForm.addEventListener('submit', event => {
   event.preventDefault();
   if (!editing || !editorForm.reportValidity()) return;
   const payload = Object.fromEntries(new FormData(editorForm));
   payload.name = payload.name.trim();
   const { kind, original } = editing;
-  const forceCurrent = kind === 'node' && original?.name === state.config.node;
-  if (forceCurrent && !canDiscardCurrent()) return;
   if (payload.host) payload.host = payload.host.trim();
   if (original) {
     payload.original_name = original.name;
     if (kind === 'alias') payload.original_platform = original.platform;
   }
-  mutate(kind === 'alias' ? '/api/aliases' : '/api/nodes', original ? 'PUT' : 'POST', payload, `${kind === 'alias' ? '别名' : '节点'}已保存`, { closeEditor: true, forceCurrent });
+  mutate(kind === 'alias' ? '/api/aliases' : '/api/nodes', original ? 'PUT' : 'POST', payload, `${kind === 'alias' ? '别名' : '节点'}已保存`, { closeEditor: true });
 });
 $('#update-available').addEventListener('click', openUpdateDialog);
 document.querySelectorAll('.dialog-close').forEach(button => {
@@ -633,7 +588,7 @@ document.addEventListener('click', event => {
   toggle.setAttribute('aria-pressed', String(reveal));
 });
 window.addEventListener('beforeunload', event => {
-  if (currentDirty || busy) {
+  if (busy) {
     event.preventDefault();
     event.returnValue = '';
   }

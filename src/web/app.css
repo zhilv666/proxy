@@ -18,7 +18,6 @@
   --danger-bg: #fdf4f4;
   --danger-line: #ecc9cd;
   --danger-text: #a12c3b;
-  --dirty: #92641a;
   --focus: #7cbf9a;
   --focus-ring: #178a5018;
   --sep: #a8b3ac;
@@ -50,7 +49,6 @@ html[data-theme="dark"] {
   --danger-bg: #2e1f20;
   --danger-line: #4d2a2c;
   --danger-text: #e78a96;
-  --dirty: #d9a94e;
   --focus: #3f7d5c;
   --focus-ring: #45b67e30;
   --sep: #5f6a63;
@@ -133,7 +131,7 @@ main { max-width: 1280px; margin: auto; padding: 28px 32px 0; }
 .eyebrow { font-size: 11px; letter-spacing: 1.8px; color: var(--accent); font-weight: 700; margin-bottom: 4px; }
 h1, h2, h3, p { margin: 0; }
 h1 { font-size: 24px; line-height: 1.35; font-weight: 700; letter-spacing: -.4px; }
-.heading-actions, .form-actions { display: flex; align-items: center; gap: 8px; }
+.heading-actions { display: flex; align-items: center; gap: 8px; }
 
 /* 按钮 */
 .button { display: inline-flex; justify-content: center; align-items: center; gap: 7px; padding: 7px 14px; border: 1px solid var(--line); background: var(--surface); border-radius: 7px; font-size: 13px; font-weight: 600; white-space: nowrap; min-height: 36px; }
@@ -169,26 +167,17 @@ h2 { font-size: 15px; line-height: 1.45; font-weight: 700; }
 
 /* 表单 */
 fieldset { padding: 0; border: 0; margin: 0; min-width: 0; }
-#current-form > fieldset { padding: 0 20px 18px; }
 label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted); min-width: 0; }
 input, select, textarea { width: 100%; min-width: 0; min-height: 36px; border: 1px solid var(--line); background: var(--surface); color: var(--text); border-radius: 6px; padding: 7px 10px; outline: none; font-size: 13px; font-weight: 400; transition: border-color .15s, box-shadow .15s, background-color .2s; }
 input::placeholder, textarea::placeholder { color: var(--faint); opacity: 1; }
 input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--focus-ring); }
 textarea { resize: vertical; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; line-height: 1.7; }
 .proxy-fields { display: grid; grid-template-columns: 130px minmax(0, 1fr) 100px; gap: 12px; }
-.current-fields { grid-template-columns: 150px minmax(0, 1fr) 130px; }
-.auth-fields { margin-top: 16px; }
-.auth-fields summary { color: var(--muted); font-size: 13px; width: fit-content; font-weight: 500; }
-.auth-fields summary span, .form-divider span { margin-left: 6px; color: var(--faint); font-size: 12px; font-weight: 400; }
-.auth-fields[open] summary { margin-bottom: 12px; }
+.form-divider span { margin-left: 6px; color: var(--faint); font-size: 12px; font-weight: 400; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .password-field { display: flex; align-items: center; position: relative; }
 .password-field input { padding-right: 52px; }
 .password-toggle { position: absolute; right: 8px; border: 0; background: transparent; padding: 4px; color: var(--accent); font-size: 12px; font-weight: 500; }
-.form-footer { background: var(--bg); border-top: 1px solid var(--line-soft); padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; gap: 14px; }
-.save-note { font-size: 12px; color: var(--muted); }
-.save-note.dirty { color: var(--dirty); font-weight: 600; }
-.form-actions .danger { margin-right: 4px; }
 
 /* 表格 */
 .table-heading { padding-bottom: 16px; flex-wrap: wrap; }
@@ -268,7 +257,6 @@ dialog::backdrop { background: var(--backdrop); backdrop-filter: blur(3px); }
   .topbar { padding: 0 22px; }
   .overview { gap: 10px; }
   .overview-item { padding: 14px; gap: 11px; }
-  .current-fields { grid-template-columns: 130px minmax(0, 1fr) 110px; }
   .notification { left: calc(50% + 100px); }
 }
 @media (max-width: 1000px) {
@@ -303,14 +291,9 @@ dialog::backdrop { background: var(--backdrop); backdrop-filter: blur(3px); }
   .overview strong { font-size: 17px; }
   .panel-heading { padding: 14px 14px 10px; gap: 10px; flex-wrap: wrap; }
   h2 { font-size: 14px; }
-  #current-form > fieldset { padding: 0 14px 14px; }
-  .proxy-fields, .current-fields { grid-template-columns: 1fr 96px; gap: 10px; }
+  .proxy-fields { grid-template-columns: 1fr 96px; gap: 10px; }
   .proxy-fields > label:first-child { grid-column: 1 / -1; }
   .form-grid { grid-template-columns: 1fr; gap: 12px; }
-  .form-footer { flex-wrap: wrap; padding: 12px 14px; gap: 10px; }
-  .save-note { width: 100%; }
-  .form-actions { width: 100%; gap: 8px; justify-content: space-between; flex-wrap: wrap; }
-  .form-actions .button { padding: 6px 10px; font-size: 12px; }
   .table-heading { display: block; }
   .search-field { width: 100%; margin-top: 12px; }
   .table-filters { margin-top: 12px; flex-wrap: wrap; }
