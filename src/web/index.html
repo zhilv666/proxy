@@ -28,14 +28,15 @@
       <button class="nav-item active" data-view="proxies" aria-current="page"><svg><use href="#icon-nodes"/></svg><span>代理配置</span><span class="nav-count" id="nav-node-count">—</span></button>
       <button class="nav-item" data-view="aliases"><svg><use href="#icon-terminal"/></svg><span>命令别名</span><span class="nav-count" id="nav-alias-count">—</span></button>
     </nav>
-    <div class="sidebar-note"><span class="status-dot"></span><strong>配置，随时就绪</strong><p>网页与命令行共用配置。<br>保存后，下一次运行即可使用。</p><code>proxy serve</code></div>
-    <div class="sidebar-version" id="app-version">v—</div>
-    <button class="sidebar-update" id="update-available" type="button" hidden><svg aria-hidden="true"><use href="#icon-arrow"/></svg><span>发现新版本 <span id="latest-version"></span></span></button>
+    <div class="sidebar-footer">
+      <div class="sidebar-note"><div class="sidebar-note-title"><span class="status-dot"></span><strong>配置随时就绪</strong></div><p>网页与命令行共用配置，保存后下一次运行即生效。</p></div>
+      <div class="sidebar-meta"><span class="sidebar-version" id="app-version" title="当前版本">v—</span><button class="sidebar-update" id="update-available" type="button" hidden><svg aria-hidden="true"><use href="#icon-arrow"/></svg><span>新版本 <span id="latest-version"></span></span></button></div>
+    </div>
   </aside>
   <div class="workspace">
     <header class="topbar"><div><span class="muted">工作空间</span><span class="breadcrumb-separator">/</span><span id="breadcrumb">代理配置</span></div><div class="topbar-actions"><button class="theme-toggle" id="theme-toggle" type="button" aria-label="切换到深色模式" aria-pressed="false" title="切换到深色模式"><svg class="icon-moon" aria-hidden="true"><use href="#icon-moon"/></svg><svg class="icon-sun" aria-hidden="true"><use href="#icon-sun"/></svg></button><span class="local-badge"><span class="status-dot"></span>本地管理</span></div></header>
     <main id="main">
-      <div class="page-heading"><div><div class="eyebrow">PROXY WORKSPACE</div><h1 id="page-title">代理配置</h1></div><div class="heading-actions"><button class="button" id="refresh"><svg><use href="#icon-refresh"/></svg>刷新</button><button class="button primary" id="add-entry" data-write disabled><span aria-hidden="true">＋</span><span id="add-entry-label">添加节点</span></button></div></div>
+      <div class="page-heading"><h1 id="page-title">代理配置</h1><div class="heading-actions"><button class="button" id="refresh"><svg><use href="#icon-refresh"/></svg>刷新</button><button class="button primary" id="add-entry" data-write disabled><span aria-hidden="true">＋</span><span id="add-entry-label">添加节点</span></button></div></div>
       <div class="error-banner" id="connection-error" role="alert" hidden></div>
       <noscript><div class="error-banner">请启用 JavaScript，以读取和管理配置。</div></noscript>
       <section class="overview" aria-label="配置概览">
@@ -60,16 +61,16 @@
         </section>
         <div class="usage-note"><svg><use href="#icon-terminal"/></svg><div><strong>少敲几个字，专注手头的事。</strong><p>例如，将 <code>gs</code> 配置为 <code>git status</code>，之后运行 <code>proxy gs</code> 即可。</p></div></div>
       </div>
-      <footer class="page-footer"><span>PROXY <span class="footer-dot">/</span> 简单连接，自由切换</span><span>本地配置管理</span></footer>
+      <footer class="page-footer"><span>简单连接，自由切换</span><span>本地配置管理</span></footer>
     </main>
   </div>
   <dialog id="editor-dialog" aria-labelledby="editor-title">
-    <form id="editor-form"><div class="dialog-heading"><div><div class="eyebrow" id="editor-eyebrow">PROXY NODE</div><h2 id="editor-title">添加节点</h2></div><button class="dialog-close" type="button" aria-label="关闭编辑窗口">×</button></div><p class="dialog-description" id="editor-description"></p><div class="form-error" id="editor-error" role="alert" hidden></div><fieldset id="editor-fields"></fieldset><div class="dialog-footer"><button class="button dialog-cancel" type="button">取消</button><button class="button primary" id="editor-submit" type="submit" data-write>保存节点</button></div></form>
+    <form id="editor-form"><div class="dialog-heading"><h2 id="editor-title">添加节点</h2><button class="dialog-close" type="button" aria-label="关闭编辑窗口">×</button></div><p class="dialog-description" id="editor-description"></p><div class="form-error" id="editor-error" role="alert" hidden></div><fieldset id="editor-fields"></fieldset><div class="dialog-footer"><button class="button dialog-cancel" type="button">取消</button><button class="button primary" id="editor-submit" type="submit" data-write>保存节点</button></div></form>
   </dialog>
   <template id="node-editor-template"><label>节点名称<input name="name" required maxlength="128" placeholder="例如：本地开发" autocomplete="off"></label><div class="proxy-fields"><label>代理协议<select name="protocol" required><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks5">SOCKS5</option><option value="socks4">SOCKS4</option></select></label><label class="host-field">主机地址<input name="host" required maxlength="255" placeholder="127.0.0.1" autocomplete="off" spellcheck="false"></label><label>端口<input name="port" type="number" min="1" max="65535" step="1" required placeholder="7890"></label></div><div class="form-divider">身份验证 <span>可选</span></div><div class="form-grid"><label>用户名<input name="username" maxlength="4096" autocomplete="off" placeholder="未设置"></label><label>密码<span class="password-field"><input name="password" type="password" maxlength="4096" autocomplete="new-password" placeholder="未设置"><button type="button" class="password-toggle" aria-label="显示密码" aria-pressed="false">显示</button></span></label></div></template>
   <template id="alias-editor-template"><div class="form-grid"><label>别名名称<input name="name" required maxlength="128" pattern="[^\s]+" title="别名不能包含空白字符" placeholder="例如：gs" autocomplete="off" spellcheck="false"></label><label>适用平台<select name="platform" required><option value="all">通用 · all</option><option value="windows">Windows</option><option value="linux">Linux</option><option value="macos">macOS</option></select></label></div><label>执行命令<textarea name="command" required maxlength="16384" rows="4" placeholder="例如：git status&#10;每行一条命令，按顺序执行" spellcheck="false"></textarea></label><p class="field-hint">每行一条命令，按顺序执行，某行失败即停止。运行 <code>proxy &lt;别名&gt;</code> 时追加的参数会拼到最后一行。</p></template>
   <dialog id="update-dialog" aria-labelledby="update-title">
-    <div class="update-dialog-body"><div class="dialog-heading"><div><div class="eyebrow">RELEASE NOTES</div><h2 id="update-title">发现新版本</h2></div><button class="dialog-close" type="button" aria-label="关闭更新日志">×</button></div><p class="dialog-description" id="update-meta"></p><div class="release-notes" id="update-notes"></div><div class="dialog-footer"><a class="button primary" id="update-link" href="https://github.com/zhilv666/proxy/releases/latest" target="_blank" rel="noopener">前往 GitHub 下载</a></div></div>
+    <div class="update-dialog-body"><div class="dialog-heading"><h2 id="update-title">发现新版本</h2><button class="dialog-close" type="button" aria-label="关闭更新日志">×</button></div><p class="dialog-description" id="update-meta"></p><div class="release-notes" id="update-notes"></div><div class="dialog-footer"><a class="button primary" id="update-link" href="https://github.com/zhilv666/proxy/releases/latest" target="_blank" rel="noopener">前往 GitHub 下载</a></div></div>
   </dialog>
   <div id="notification" class="notification" role="status" aria-live="polite" hidden></div>
   <p id="sort-instructions" class="sr-only">可拖动排序手柄，也可聚焦后按上、下方向键调整顺序，Home 移到首位，End 移到末位。按 Escape 取消拖动。</p>
