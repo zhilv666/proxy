@@ -1,12 +1,12 @@
 {
-    "version": "1.5.0",
+    "version": "1.6.0",
     "description": "跨平台代理命令行工具: 一条命令带代理执行，内置 TUI、多节点切换与连通性检测",
     "homepage": "https://github.com/zhilv666/proxy",
     "license": "MIT",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/zhilv666/proxy/releases/download/v1.5.0/proxy-v1.5.0-x86_64-windows.zip",
-            "hash": "d5ecafb81f04ea3c3ea98c3e6c1b2d5f6a2d97a01d6e500234f8cfe8a8679e3e"
+            "url": "https://github.com/zhilv666/proxy/releases/download/v1.6.0/proxy-v1.6.0-x86_64-windows.zip",
+            "hash": "f704d062309322ffdb8094fd91df533014ed7fc71af7d4c4e86242d73808b02f"
         }
     },
     "bin": "proxy.exe",
