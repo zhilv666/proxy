@@ -223,6 +223,8 @@ fn printAliasHelp() void {
         \\   May span several lines; each non-empty line runs in order and
         \\   the first failing line stops the rest. Extra arguments passed to
         \\   proxy <alias> are appended to the last line.
+        \\   Quote arguments with single/double quotes. export NAME=value sets
+        \\   environment variables for following lines, without changing the parent shell.
         \\
     ;
     output.print("{s}", .{help});
@@ -426,6 +428,7 @@ fn execWithProxy(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
     // Execute commands in order; stop at the first failure
     for (commands) |argv| {
+        if (try Alias.applyExport(&env_map, argv)) continue;
         var child = std.process.Child.init(argv, allocator);
         child.env_map = &env_map;
         child.stdin_behavior = .Inherit;

@@ -104,6 +104,15 @@ proxy gs       # 执行 git status
 proxy update   # 先 sudo apt update，再 sudo apt upgrade -y
 ```
 
+别名支持单、双引号参数，以及跨平台的 `export NAME=value` 行。环境变量会传给同一别名中后续的命令，例如：
+
+```text
+export CODEX_CA_CERTIFICATE='D:\reqable-ca.pem'
+codex --dangerously-bypass-approvals-and-sandbox
+```
+
+将以上内容保存为 `cx` 后，执行 `proxy cx` 即可。变量只作用于本次执行，不修改父终端；单独执行只有 `export` 的别名也不会改变父终端。值不做变量或命令替换；双引号内支持 `\\` 和 `\"` 转义，Windows 路径可用单引号保留反斜杠。
+
 ### 管理别名
 
 ```bash

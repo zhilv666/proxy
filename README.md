@@ -269,6 +269,15 @@ proxy alias add all sync $'git fetch --all\ngit pull --ff-only'
 proxy sync        # 先 git fetch --all，成功后再 git pull --ff-only
 ```
 
+支持用单引号或双引号包住含空格的参数、路径，以及 `export NAME=value` 设置后续命令的环境变量（Windows / Linux / macOS 通用）。例如 `cx` 别名内容：
+
+```text
+export CODEX_CA_CERTIFICATE='D:\reqable-ca.pem'
+codex --dangerously-bypass-approvals-and-sandbox
+```
+
+执行 `proxy cx` 时，Codex 会继承证书变量和代理环境。变量仅在本次执行中生效；只有 `export` 的别名不会修改当前终端环境。值按字面量处理，不展开 `$VAR` 或命令替换；双引号内 `\\` 表示一个反斜杠，`\"` 表示双引号，Windows 路径推荐用单引号。
+
 </details>
 
 <details>
