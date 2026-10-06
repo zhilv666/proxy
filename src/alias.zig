@@ -399,38 +399,113 @@ fn expandAlias(allocator: std.mem.Allocator, command: []const u8, extra_args: []
         commands.deinit(allocator);
     }
 
-    // 每个非空行是一条命令；行内按空白切分为 argv
+    // 每个非空行是一条命令；引号内的空白与 Windows 路径保持完整。
     var lines = std.mem.splitScalar(u8, command, '\n');
     while (lines.next()) |raw| {
         const line = std.mem.trim(u8, raw, " \t\r");
         if (line.len == 0) continue;
-        var parts: std.ArrayList([]const u8) = .{};
+        const argv = try parseLine(allocator, line);
         errdefer {
-            for (parts.items) |arg| allocator.free(arg);
-            parts.deinit(allocator);
+            for (argv) |arg| allocator.free(arg);
+            allocator.free(argv);
         }
-        var it = std.mem.tokenizeAny(u8, line, " \t");
-        while (it.next()) |part| {
-            try parts.append(allocator, try allocator.dupe(u8, part));
-        }
-        try commands.append(allocator, try parts.toOwnedSlice(allocator));
+        try commands.append(allocator, argv);
     }
     if (commands.items.len == 0) return error.EmptyAlias;
 
     // 追加参数拼到最后一行
     if (extra_args.len != 0) {
         const last = commands.items[commands.items.len - 1];
-        var parts: std.ArrayList([]const u8) = .{};
-        defer parts.deinit(allocator);
-        try parts.appendSlice(allocator, last);
+        const argv = try allocator.alloc([]const u8, last.len + extra_args.len);
+        var filled = last.len;
+        errdefer {
+            for (argv[last.len..filled]) |arg| allocator.free(arg);
+            allocator.free(argv);
+        }
+        @memcpy(argv[0..last.len], last);
         for (extra_args) |arg| {
-            try parts.append(allocator, try allocator.dupe(u8, arg));
+            argv[filled] = try allocator.dupe(u8, arg);
+            filled += 1;
         }
         allocator.free(last);
-        commands.items[commands.items.len - 1] = try parts.toOwnedSlice(allocator);
+        commands.items[commands.items.len - 1] = argv;
     }
 
     return commands.toOwnedSlice(allocator);
+}
+
+/// Minimal argv quoting, without shell expansion. Backslashes stay literal except
+/// for escaped quotes/backslashes inside double quotes, so D:\path works as-is.
+fn parseLine(allocator: std.mem.Allocator, line: []const u8) ![][]const u8 {
+    var args: std.ArrayList([]const u8) = .{};
+    errdefer {
+        for (args.items) |arg| allocator.free(arg);
+        args.deinit(allocator);
+    }
+    var word: std.ArrayList(u8) = .{};
+    defer word.deinit(allocator);
+    var quote: ?u8 = null;
+    var started = false;
+    var index: usize = 0;
+    while (index < line.len) : (index += 1) {
+        const char = line[index];
+        if (quote) |q| {
+            if (char == q) {
+                quote = null;
+            } else if (q == '"' and char == '\\' and index + 1 < line.len and
+                (line[index + 1] == '"' or line[index + 1] == '\\'))
+            {
+                index += 1;
+                try word.append(allocator, line[index]);
+            } else {
+                try word.append(allocator, char);
+            }
+        } else if (char == '\'' or char == '"') {
+            quote = char;
+            started = true;
+        } else if (char == ' ' or char == '\t') {
+            if (started) {
+                try appendArgument(allocator, &args, word.items);
+                word.clearRetainingCapacity();
+                started = false;
+            }
+        } else {
+            started = true;
+            try word.append(allocator, char);
+        }
+    }
+    if (quote != null) return error.InvalidAliasQuotes;
+    if (started) try appendArgument(allocator, &args, word.items);
+    return args.toOwnedSlice(allocator);
+}
+
+fn appendArgument(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8), value: []const u8) !void {
+    const arg = try allocator.dupe(u8, value);
+    errdefer allocator.free(arg);
+    try args.append(allocator, arg);
+}
+
+/// Handle portable `export NAME=value` directives in the shared child environment.
+/// Values are literal; these changes never modify the invoking shell's environment.
+pub fn applyExport(env: *std.process.EnvMap, argv: []const []const u8) !bool {
+    if (argv.len == 0 or !std.mem.eql(u8, argv[0], "export")) return false;
+    if (argv.len == 1) return error.InvalidExport;
+    // Validate the entire line before applying any assignments.
+    for (argv[1..]) |assignment| {
+        const equals = std.mem.indexOfScalar(u8, assignment, '=') orelse return error.InvalidExport;
+        const name = assignment[0..equals];
+        if (name.len == 0 or (!std.ascii.isAlphabetic(name[0]) and name[0] != '_'))
+            return error.InvalidExport;
+        for (name[1..]) |char| {
+            if (!std.ascii.isAlphanumeric(char) and char != '_') return error.InvalidExport;
+        }
+        if (std.mem.indexOfScalar(u8, assignment, 0) != null) return error.InvalidExport;
+    }
+    for (argv[1..]) |assignment| {
+        const equals = std.mem.indexOfScalar(u8, assignment, '=').?;
+        try env.put(assignment[0..equals], assignment[equals + 1 ..]);
+    }
+    return true;
 }
 
 test "expandAlias splits lines and appends extra args to the last line" {
@@ -441,4 +516,48 @@ test "expandAlias splits lines and appends extra args to the last line" {
     try std.testing.expectEqualDeep(&[_][]const u8{ "echo", "one" }, commands[0]);
     try std.testing.expectEqualDeep(&[_][]const u8{ "git", "status", "--short", "-b", "x" }, commands[1]);
     try std.testing.expectError(error.EmptyAlias, expandAlias(allocator, " \n\t\n", &.{}));
+}
+
+test "alias quoting preserves paths empty arguments and literal extra args" {
+    const allocator = std.testing.allocator;
+    const commands = try expandAlias(allocator,
+        \\export CODEX_CA_CERTIFICATE='D:\reqable-ca.pem'
+        \\export NODE_EXTRA_CA_CERTS="D:\\cert files\\reqable-ca.pem"
+        \\"C:\Program Files\tool.exe" '' "say \"hello\"" pre'joined value' D:\raw\path
+    , &.{ "two words", "'literal'" });
+    defer freeCommands(allocator, commands);
+    try std.testing.expectEqualDeep(&[_][]const u8{ "export", "CODEX_CA_CERTIFICATE=D:\\reqable-ca.pem" }, commands[0]);
+    try std.testing.expectEqualDeep(&[_][]const u8{ "export", "NODE_EXTRA_CA_CERTS=D:\\cert files\\reqable-ca.pem" }, commands[1]);
+    try std.testing.expectEqualDeep(&[_][]const u8{
+        "C:\\Program Files\\tool.exe", "", "say \"hello\"", "prejoined value", "D:\\raw\\path", "two words", "'literal'",
+    }, commands[2]);
+    try std.testing.expectError(error.InvalidAliasQuotes, expandAlias(allocator, "tool 'unfinished", &.{}));
+    try std.testing.expectError(error.InvalidAliasQuotes, expandAlias(allocator, "tool \"unfinished", &.{}));
+}
+
+test "export updates shared environment and validates assignments" {
+    var env = std.process.EnvMap.init(std.testing.allocator);
+    defer env.deinit();
+    try env.put("KEEP", "original");
+    try std.testing.expect(try applyExport(&env, &.{ "export", "CERT=D:\\reqable-ca.pem", "EMPTY=", "_VALUE=a=b" }));
+    try std.testing.expectEqualStrings("D:\\reqable-ca.pem", env.get("CERT").?);
+    try std.testing.expectEqualStrings("", env.get("EMPTY").?);
+    try std.testing.expectEqualStrings("a=b", env.get("_VALUE").?);
+    try std.testing.expect(try applyExport(&env, &.{ "export", "CERT=replaced" }));
+    try std.testing.expectEqualStrings("replaced", env.get("CERT").?);
+    for ([_][]const u8{ "MISSING", "=empty", "1BAD=value", "BAD-NAME=value", "NUL=x\x00y" }) |invalid| {
+        try std.testing.expectError(error.InvalidExport, applyExport(&env, &.{ "export", "KEEP=changed", invalid }));
+        try std.testing.expectEqualStrings("original", env.get("KEEP").?);
+    }
+    try std.testing.expectError(error.InvalidExport, applyExport(&env, &.{"export"}));
+    try std.testing.expect(!try applyExport(&env, &.{ "tool", "export", "KEEP=changed" }));
+}
+
+test "alias parsing cleans up on allocation failure" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            const commands = try expandAlias(allocator, "export CERT='D:\\cert files\\ca.pem'\ntool \"two words\"", &.{ "extra", "" });
+            defer freeCommands(allocator, commands);
+        }
+    }.run, .{});
 }
