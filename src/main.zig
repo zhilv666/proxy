@@ -14,42 +14,82 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const raw_args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, raw_args);
 
-    if (args.len < 2) {
+    if (raw_args.len < 2) {
         printHelp();
         return;
     }
 
-    const command = args[1];
+    const invocation = try parseExecutionArgs(raw_args[1..]);
+    const args = invocation.args;
+    const command = args[0];
+    if (invocation.external_only) return execCommand(allocator, args, invocation.mode);
+    if (invocation.mode != null and (isManageCommand(command) or
+        std.mem.eql(u8, command, "on") or std.mem.eql(u8, command, "status") or std.mem.eql(u8, command, "check")))
+    {
+        output.print("error: -n/-p apply to executable commands and aliases, not {s}\n", .{command});
+        return error.InvalidExecutionModeCommand;
+    }
 
     if (std.mem.eql(u8, command, "-h") or std.mem.eql(u8, command, "--help")) {
         printHelp();
     } else if (std.mem.eql(u8, command, "-v") or std.mem.eql(u8, command, "--version")) {
         printVersion();
     } else if (std.mem.eql(u8, command, "config")) {
-        try handleConfig(allocator, args[2..]);
+        try handleConfig(allocator, args[1..]);
     } else if (std.mem.eql(u8, command, "alias")) {
-        try handleAlias(allocator, args[2..]);
+        try handleAlias(allocator, args[1..]);
     } else if (std.mem.eql(u8, command, "serve")) {
-        try Serve.run(allocator, args[2..]);
+        try Serve.run(allocator, args[1..]);
     } else if (std.mem.eql(u8, command, "status") or std.mem.eql(u8, command, "check")) {
-        try Check.run(allocator, args[2..]);
+        try Check.run(allocator, args[1..]);
     } else if (std.mem.eql(u8, command, "switch")) {
-        try handleSwitch(allocator, args[2..]);
+        try handleSwitch(allocator, args[1..]);
     } else if (std.mem.eql(u8, command, "node") or std.mem.eql(u8, command, "nodes")) {
-        try handleNode(allocator, args[2..]);
+        try handleNode(allocator, args[1..]);
     } else if (std.mem.eql(u8, command, "on")) {
         // proxy on —— 进入当前节点的代理子 shell,命令走代理,exit 返回原环境
         try Enter.run(allocator);
     } else if (Profile.looksLikeIndex(command)) {
         // proxy <序号> [命令...] —— 按 node list 的顺序选节点
-        try handleIndexed(allocator, command, args[2..]);
+        if (invocation.mode == .direct) {
+            output.print("error: --no-proxy cannot be combined with a proxy node index\n", .{});
+            return error.ConflictingExecutionMode;
+        }
+        if (invocation.mode != null and args.len == 1) return error.MissingCommand;
+        try handleIndexed(allocator, command, args[1..]);
     } else {
         // Execute command with proxy
-        try execWithProxy(allocator, args[1..]);
+        try execCommand(allocator, args, invocation.mode);
     }
+}
+
+const Invocation = struct {
+    args: []const []const u8,
+    mode: ?Alias.Mode = null,
+    external_only: bool = false,
+};
+
+fn parseExecutionArgs(args: []const []const u8) !Invocation {
+    var mode: ?Alias.Mode = null;
+    for (args, 0..) |arg, index| {
+        if (std.mem.eql(u8, arg, "--")) {
+            if (index + 1 == args.len) return error.MissingCommand;
+            return .{ .args = args[index + 1 ..], .mode = mode, .external_only = true };
+        }
+        const selected: Alias.Mode = if (std.mem.eql(u8, arg, "-n") or std.mem.eql(u8, arg, "--no-proxy"))
+            .direct
+        else if (std.mem.eql(u8, arg, "-p") or std.mem.eql(u8, arg, "--proxy"))
+            .proxy
+        else
+            return .{ .args = args[index..], .mode = mode };
+        if (mode != null and mode != selected) return error.ConflictingExecutionMode;
+        mode = selected;
+    }
+    output.print("usage: proxy [-n|--no-proxy|-p|--proxy] <command|alias> [args...]\n", .{});
+    return error.MissingCommand;
 }
 
 fn printVersion() void {
@@ -77,7 +117,7 @@ fn printHelp() void {
         \\proxy - cross-platform proxy CLI
         \\
         \\Usage:
-        \\  proxy [command] [args...]
+        \\  proxy [-n|--no-proxy|-p|--proxy] <command|alias> [args...]
         \\
         \\Commands:
         \\  config              Manage config
@@ -88,11 +128,15 @@ fn printHelp() void {
         \\  status | check      Check proxy connectivity and latency
         \\  on                  Enter a proxied subshell for the current node (exit to leave)
         \\  <index> [command]   Pick node by list index: with command = run once via that node
-        \\  <command> [args]    Run a command through the proxy
+        \\  <command> [args]    Run a command (aliases use their saved mode)
         \\
         \\Options:
+        \\  -n, --no-proxy      Run without proxy environment variables
+        \\  -p, --proxy         Override alias mode and use the current proxy
+        \\  --                 End options and run an external command or alias
         \\  -h, --help          Show help
         \\  -v, --version       Show version
+        \\  Put execution options before the command; later arguments pass through.
         \\
     ;
     output.print("{s}", .{help});
@@ -189,6 +233,17 @@ fn handleAlias(allocator: std.mem.Allocator, args: []const []const u8) !void {
             else => return err,
         };
         output.print("alias added: {s} ({s}) -> {s}\n", .{ args[2], args[1], args[3] });
+    } else if (std.mem.eql(u8, subcommand, "mode")) {
+        if (args.len != 4) {
+            output.print("usage: proxy alias mode <platform> <alias> <proxy|direct>\n", .{});
+            return error.InvalidArguments;
+        }
+        const mode = Alias.Mode.fromString(args[3]) orelse {
+            output.print("error: alias mode must be proxy or direct\n", .{});
+            return error.InvalidAliasMode;
+        };
+        try Alias.setMode(allocator, .{ .platform = args[1], .name = args[2] }, mode);
+        output.print("alias mode: {s} ({s}) -> {s}\n", .{ args[2], args[1], @tagName(mode) });
     } else if (std.mem.eql(u8, subcommand, "remove")) {
         if (args.len < 3) {
             output.print("error: platform and alias are required\nusage: proxy alias remove <platform> <alias>\n", .{});
@@ -214,6 +269,7 @@ fn printAliasHelp() void {
         \\ Subcommands:
         \\   add <platform> <alias> <command>    Add an alias
         \\   remove <platform> <alias>           Remove an alias
+        \\   mode <platform> <alias> <proxy|direct> Set default execution mode
         \\   list                                List all aliases
         \\
         \\ Platforms:
@@ -225,6 +281,7 @@ fn printAliasHelp() void {
         \\   proxy <alias> are appended to the last line.
         \\   Quote arguments with single/double quotes. export NAME=value sets
         \\   environment variables for following lines, without changing the parent shell.
+        \\   Existing aliases default to proxy. -n/-p override the saved mode for one run.
         \\
     ;
     output.print("{s}", .{help});
@@ -278,6 +335,9 @@ fn handleIndexed(allocator: std.mem.Allocator, token: []const u8, rest: []const 
         return;
     }
 
+    if (std.mem.eql(u8, rest[0], "-n") or std.mem.eql(u8, rest[0], "--no-proxy"))
+        return error.ConflictingExecutionMode;
+
     // 管理类子命令没有"临时节点"语义，明确拒绝，避免把临时配置写进磁盘
     if (isManageCommand(rest[0])) {
         output.print(
@@ -302,7 +362,7 @@ fn handleIndexed(allocator: std.mem.Allocator, token: []const u8, rest: []const 
         // proxy <序号> on —— 进入该节点的代理子 shell (期间 Config 临时为该节点)
         try Enter.run(allocator);
     } else {
-        try execWithProxy(allocator, rest);
+        try execCommand(allocator, rest, .proxy);
     }
 }
 
@@ -407,28 +467,36 @@ fn printNodeHelp() void {
     output.print("{s}", .{help});
 }
 
-fn execWithProxy(allocator: std.mem.Allocator, args: []const []const u8) !void {
-    // Load config
-    var config = try Config.load(allocator);
-    defer config.deinit();
-
+fn execCommand(allocator: std.mem.Allocator, args: []const []const u8, override: ?Alias.Mode) !void {
     // Check if first arg is an alias; a multi-line alias yields several commands
-    const commands = try Alias.resolve(allocator, args);
+    const resolved = try Alias.resolve(allocator, args);
+    const commands = resolved.commands;
     defer Alias.freeCommands(allocator, commands);
+    const mode = override orelse resolved.mode;
 
-    // Build proxy URL
-    const proxy_url = try config.buildProxyUrl(allocator);
-    defer allocator.free(proxy_url);
+    // Direct commands do not depend on proxy configuration being present or valid.
+    const proxy_url = if (mode == .proxy) blk: {
+        var config = try Config.load(allocator);
+        defer config.deinit();
+        break :blk try config.buildProxyUrl(allocator);
+    } else null;
+    defer if (proxy_url) |url| allocator.free(url);
 
     // Set up environment
     var env_map = try std.process.getEnvMap(allocator);
     defer env_map.deinit();
 
-    try Config.putProxyEnv(&env_map, proxy_url);
+    if (proxy_url) |url| try Config.putProxyEnv(&env_map, url);
 
     // Execute commands in order; stop at the first failure
     for (commands) |argv| {
         if (try Alias.applyExport(&env_map, argv)) continue;
+        if (mode == .direct) {
+            Config.clearProxyEnv(&env_map);
+        } else if (override == .proxy) {
+            // Explicit -p or a node index wins over proxy exports in an alias.
+            try Config.putProxyEnv(&env_map, proxy_url.?);
+        }
         var child = std.process.Child.init(argv, allocator);
         child.env_map = &env_map;
         child.stdin_behavior = .Inherit;

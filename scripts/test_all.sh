@@ -43,7 +43,7 @@ echo
 
 echo ">>> 测试多行别名..."
 ./zig-out/bin/proxy alias add all multi $'echo one\necho two' 2>&1 | grep -v "error(gpa)" > /dev/null
-./zig-out/bin/proxy alias list 2>&1 | grep -q "multi -> echo one"
+./zig-out/bin/proxy alias list 2>&1 | grep -q "multi \[proxy\] -> echo one"
 multi_output=$(./zig-out/bin/proxy multi extra 2>&1)
 echo "$multi_output" | grep -q "^one"
 echo "$multi_output" | grep -q "^two extra"

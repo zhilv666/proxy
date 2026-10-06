@@ -213,7 +213,7 @@ class ServeTests(unittest.TestCase):
         # Multi-line commands round-trip; browser CRLF is normalised to LF.
         self.api('POST', '/api/aliases', {'platform': 'all', 'name': 'multi', 'command': 'echo one\r\necho two\r\n'}, 201)
         self.assertEqual(next(a['command'] for a in self.api('GET', '/api/aliases') if a['name'] == 'multi'), 'echo one\necho two\n')
-        self.assertIn('multi -> echo one', self.cli('alias', 'list'))
+        self.assertIn('multi [proxy] -> echo one', self.cli('alias', 'list'))
 
     def test_persistence_after_restart_and_cli_updates(self):
         self.cli('config', 'set', 'host', '192.0.2.5')
@@ -247,11 +247,13 @@ class ServeTests(unittest.TestCase):
     def test_invalid_stored_data_returns_error_without_overwrite(self):
         self.api('PUT', '/api/config', self.config())
         alias_path = self.home / 'aliases.json'
-        alias_path.write_text('{"all":{"bad":42}}', encoding='utf-8')
-        before = self.files()
-        self.api('GET', '/api/state', expected=500)
-        self.api('POST', '/api/aliases', {'platform': 'all', 'name': 'gs', 'command': 'git status'}, 500)
-        self.assertEqual(self.files(), before)
+        for invalid in (42, {'command': 'git status', 'mode': 'typo'},
+                        {'command': 42, 'mode': 'direct'}, {'mode': 'direct'}):
+            alias_path.write_text(json.dumps({'all': {'bad': invalid}}), encoding='utf-8')
+            before = self.files()
+            self.api('GET', '/api/state', expected=500)
+            self.api('POST', '/api/aliases', {'platform': 'all', 'name': 'gs', 'command': 'git status'}, 500)
+            self.assertEqual(self.files(), before)
         alias_path.write_text('{}', encoding='utf-8')
         (self.home / 'config.json').write_text('{"port":42}', encoding='utf-8')
         self.api('GET', '/api/config', expected=500)
@@ -337,7 +339,7 @@ class ServeTests(unittest.TestCase):
             self.api('POST', '/api/aliases', alias, 201)
         original_aliases = (self.home / 'aliases.json').read_bytes()
         current = self.api('GET', '/api/config')
-        wanted = [aliases[index] for index in (3, 1, 2, 0)]
+        wanted = [{**aliases[index], 'mode': 'proxy'} for index in (3, 1, 2, 0)]
         identities = [{'platform': alias['platform'], 'name': alias['name']} for alias in wanted]
         self.api('PUT', '/api/aliases/order', {'aliases': identities})
         self.assertEqual(self.api('GET', '/api/aliases'), wanted)
@@ -348,7 +350,40 @@ class ServeTests(unittest.TestCase):
         self.start_server()
         self.assertEqual(self.api('GET', '/api/aliases'), wanted)
         self.cli('alias', 'add', 'all', 'new', 'echo appended')
-        self.assertEqual(self.api('GET', '/api/aliases'), wanted + [{'platform': 'all', 'name': 'new', 'command': 'echo appended'}])
+        self.assertEqual(self.api('GET', '/api/aliases'), wanted + [{'platform': 'all', 'name': 'new', 'command': 'echo appended', 'mode': 'proxy'}])
+
+    def test_alias_modes_survive_edits_moves_restart_and_cli_updates(self):
+        alias = {'platform': 'all', 'name': 'quick', 'command': 'git status', 'mode': 'direct'}
+        self.api('POST', '/api/aliases', alias, 201)
+        self.assertEqual(self.api('GET', '/api/aliases'), [alias])
+        self.cli('alias', 'add', 'all', 'quick', 'git status --short')
+        self.assertEqual(self.api('GET', '/api/aliases')[0]['mode'], 'direct')
+        # Old API clients omit mode; preserve it even when renaming or moving platforms.
+        changed = {'platform': 'windows', 'name': 'renamed', 'command': 'git diff',
+                   'original_platform': 'all', 'original_name': 'quick'}
+        self.api('PUT', '/api/aliases', changed)
+        expected = {'platform': 'windows', 'name': 'renamed', 'command': 'git diff', 'mode': 'direct'}
+        self.assertEqual(self.api('GET', '/api/aliases'), [expected])
+        self.stop_server()
+        self.start_server()
+        self.assertEqual(self.api('GET', '/api/aliases'), [expected])
+        self.cli('alias', 'mode', 'windows', 'renamed', 'proxy')
+        self.assertEqual(self.api('GET', '/api/aliases')[0]['mode'], 'proxy')
+        self.api('PUT', '/api/aliases', {**expected, 'original_platform': 'windows', 'original_name': 'renamed'})
+        self.assertEqual(self.api('GET', '/api/aliases')[0]['mode'], 'direct')
+        self.api('DELETE', '/api/aliases', {'platform': 'windows', 'name': 'renamed'})
+        self.cli('alias', 'add', 'windows', 'renamed', 'git status')
+        self.assertEqual(self.api('GET', '/api/aliases')[0]['mode'], 'proxy')
+
+    def test_invalid_alias_modes_do_not_change_files(self):
+        alias = {'platform': 'all', 'name': 'quick', 'command': 'git status', 'mode': 'direct'}
+        self.api('POST', '/api/aliases', alias, 201)
+        before = self.files()
+        for mode in ('invalid', '', None, 1, {}):
+            with self.subTest(mode=mode):
+                self.api('PUT', '/api/aliases', {**alias, 'mode': mode,
+                                               'original_platform': 'all', 'original_name': 'quick'}, 400)
+                self.assertEqual(self.files(), before)
 
     def test_alias_order_survives_rename_platform_move_and_delete(self):
         for name in ('a', 'b', 'c'):

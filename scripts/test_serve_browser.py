@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Browser regression for sorting; requires Python Playwright and Chromium.
+"""Browser regression for sorting and alias modes; requires Playwright and Chromium.
 
 Run after zig build: python -B scripts/test_serve_browser.py [path/to/proxy]
 Uses an isolated PROXY_HOME and writes screenshots to .zig-cache.
@@ -142,6 +142,25 @@ try:
         wait_order(page, 'aliases', wanted)
         page.screenshot(path=str(artifacts / 'serve-sort-aliases-desktop.png'), full_page=True)
 
+        # Edit the saved execution mode and verify persistence through the UI.
+        quick = row(page, 'aliases', wanted[0])
+        expect(quick.locator('[data-label="执行模式"]')).to_have_text('使用代理')
+        quick.get_by_role('button', name='编辑', exact=True).click()
+        expect(page.locator('[name=mode]')).to_have_value('proxy')
+        page.locator('[name=mode]').select_option('direct')
+        page.screenshot(path=str(artifacts / 'serve-alias-mode-editor-desktop.png'), full_page=True)
+        page.get_by_role('button', name='保存别名', exact=True).click()
+        expect(page.locator('#editor-dialog')).not_to_be_visible()
+        expect(row(page, 'aliases', wanted[0]).locator('[data-label="执行模式"]')).to_have_text('无代理')
+        page.reload()
+        page.locator('[data-view=aliases]').click()
+        expect(row(page, 'aliases', wanted[0]).locator('[data-label="执行模式"]')).to_have_text('无代理')
+        row(page, 'aliases', wanted[0]).get_by_role('button', name='编辑', exact=True).click()
+        expect(page.locator('[name=mode]')).to_have_value('direct')
+        page.locator('.dialog-cancel').click()
+        assert fixture.api('GET', '/api/aliases')[0]['mode'] == 'direct'
+        page.screenshot(path=str(artifacts / 'serve-alias-modes-desktop.png'), full_page=True)
+
         # Exercise actual touch pointer events, rather than mouse emulation.
         mobile = browser.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True)
         touch_page = mobile.new_page()
@@ -174,10 +193,19 @@ try:
         touch_page.locator('#add-entry').click()
         expect(touch_page.locator('#editor-dialog')).to_be_visible()
         assert touch_page.locator('#editor-dialog').bounding_box()['width'] <= 390
+        touch_page.locator('[name=name]').fill('mobile-direct')
+        touch_page.locator('[name=mode]').select_option('direct')
+        touch_page.locator('[name=command]').fill('git status')
         touch_page.screenshot(path=str(artifacts / 'serve-sort-editor-mobile.png'), full_page=True)
+        touch_page.get_by_role('button', name='保存别名', exact=True).click()
+        expect(touch_page.locator('#editor-dialog')).not_to_be_visible()
+        added = touch_page.locator('#alias-rows tr').filter(has=touch_page.locator('.alias-name', has_text='mobile-direct'))
+        expect(added.locator('[data-label="执行模式"]')).to_have_text('无代理')
+        assert touch_page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+        touch_page.screenshot(path=str(artifacts / 'serve-alias-modes-mobile.png'), full_page=True)
         assert not errors, errors
         browser.close()
         print('Browser sorting checks passed: mouse, touch, keyboard, filtered order, persistence,')
-        print('stale lists, save failures, unchanged proxy/commands, and responsive layout.')
+        print('stale lists, save failures, alias mode editing/creation, and responsive layout.')
 finally:
     fixture.doCleanups()

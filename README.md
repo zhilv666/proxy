@@ -8,6 +8,7 @@
 
 ```bash
 proxy curl https://google.com     # 带代理执行任意命令
+proxy -n git status               # 无代理执行命令，也支持已有别名
 proxy 2 curl https://google.com   # 用 2 号节点跑这一条，不改当前配置
 proxy on                          # 进入代理子 shell: 里面的命令都走代理,exit 返回
 proxy status                      # 检测代理连通性与延迟
@@ -22,7 +23,7 @@ proxy serve                       # 在浏览器中管理代理节点和命令�
 - 🔢 按序号临时指定节点：`proxy 2 curl https://google.com` 只这一条走 2 号节点，不改当前配置
 - 🐚 代理子 shell:`proxy on` 进入一个命令都自动走代理的 shell,`exit` 返回原环境,历史命令互通
 - 📡 内置 TCP / HTTP Ping：实时查看代理连通性和响应延迟
-- 🏷️ 命令别名系统，支持平台特定别名与跨平台合并显示
+- 🏷️ 命令别名系统，支持平台特定别名、默认执行模式和单次无代理运行
 - 🌐 内嵌网页管理：代理配置、节点和别名的增删查改，支持拖动排序、搜索与平台筛选
 - 🔐 认证代理支持（用户名密码自动 URL 编码）
 
@@ -109,7 +110,7 @@ proxy serve --help
 
 - **当前节点**：顶部概览显示当前使用的节点和代理地址；修改当前连接请用 `proxy config set` 或在网页启用某个节点。
 - **代理节点**：新增、查询、编辑、重命名、删除、启用；可按名称、地址或协议搜索。
-- **命令别名**：新增、查询、编辑、删除；支持修改名称和所属平台，按名称、命令搜索及平台筛选。
+- **命令别名**：新增、查询、编辑、删除；支持修改名称、所属平台及执行模式（使用代理 / 无代理），按名称、命令搜索及平台筛选。
 - **拖动排序**：拖动节点或别名左侧的手柄，松开后自动保存；支持触屏和键盘方向键。节点顺序同步到 CLI 序号，搜索或筛选下排序会保留隐藏条目的位置。
 - **配置同步**：与 CLI 共用 `~/.proxy/` 或 `PROXY_HOME`；编辑激活节点会同步当前配置。
 - **保存行为**：新建节点不会自动切换；删除激活节点会保留当前代理参数并解除关联。
@@ -246,6 +247,7 @@ proxy node remove 2
 ```bash
 proxy alias add <platform> <name> <command>   # 添加
 proxy alias remove <platform> <name>          # 删除
+proxy alias mode <platform> <name> <proxy|direct> # 设置默认执行模式
 proxy alias list                              # 列出
 ```
 
@@ -261,6 +263,21 @@ proxy gs          # → git status (带代理环境)
 proxy open        # Windows 上 → explorer . ; macOS 上 → open .
 proxy gs --short  # 追加参数原样传递 → git status --short
 ```
+
+**无代理快捷命令**：现有别名默认使用代理，可按别名保存模式，也可只覆盖本次执行。
+
+```bash
+proxy -n cx                      # 本次无代理；完整写法 --no-proxy
+proxy -p cx                      # 本次使用当前代理；完整写法 --proxy
+proxy alias mode all sm direct   # 将已有 sm 别名设为无代理
+proxy sm                         # 此后直接作为普通快捷命令运行
+proxy alias mode all sm proxy    # 恢复默认使用代理
+proxy 2 sm                       # 显式指定节点时，覆盖别名模式
+```
+
+优先级为「本次 `-n` / `-p` 或显式节点 > 别名模式 > 默认使用代理」。模式参数须放在命令前；`proxy cx -n` 会把 `-n` 原样交给 cx 的最后一条命令。`-n` 与 `-p`、节点序号不能同时使用；这些参数不用于 `config`、`alias`、`on` 等管理或交互子命令。需要运行与内置命令或选项同名的别名时，可用 `proxy -n -- <别名>`。
+
+无代理模式在每条命令启动前清除继承或别名 `export` 设置的 `http_proxy`、`https_proxy`、`all_proxy`、`ftp_proxy` 及其大写形式，保留证书等其他环境变量。它不读取代理配置，不修改父终端环境、当前节点或系统设置；应用自己的代理配置和 VPN 不受控制。别名重命名、移动平台、修改命令时保留模式，网页与 `proxy alias list` 均显示模式。
 
 命令可以写多行，每行一条，按顺序执行；某行退出码非 0 即停止，追加参数拼到最后一行。多行别名不经过 shell，因此不支持 `&&`、管道等 shell 语法：
 
@@ -354,11 +371,13 @@ proxy sh -c 'env | grep -i proxy'
 
 ```json
 {
-  "all":     { "gs": "git status" },
+  "all":     { "gs": "git status", "sm": { "command": "adb forward tcp:23333 tcp:23333", "mode": "direct" } },
   "windows": { "open": "explorer ." },
   "macos":   { "open": "open ." }
 }
 ```
+
+旧字符串格式继续表示使用代理，无需迁移；无代理别名使用含 `command`、`mode` 的对象。网页 API 为每个别名返回 `mode`；编辑时省略该字段会保留原模式。
 
 `profiles.json`（代理节点，`proxy node save` 创建）：
 
