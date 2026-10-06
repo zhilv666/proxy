@@ -317,7 +317,11 @@ fn route(state: *State, allocator: std.mem.Allocator, request: Request) !Respons
         if (std.mem.trim(u8, raw_command, " \t\r\n").len == 0 or raw_command.len > 16384 or std.mem.indexOfScalar(u8, raw_command, 0) != null) return error.InvalidAliasCommand;
         // 浏览器 textarea 会提交 \r\n，统一按 \n 保存
         const command = try std.mem.replaceOwned(u8, allocator, raw_command, "\r\n", "\n");
-        try Alias.storeEntry(allocator, .{ .platform = platform, .name = name, .command = command }, if (method == .PUT)
+        const mode: ?Alias.Mode = if (object.contains("mode"))
+            Alias.Mode.fromString(try requiredString(object, "mode")) orelse return error.InvalidAliasMode
+        else
+            null;
+        try Alias.storeEntry(allocator, .{ .platform = platform, .name = name, .command = command, .mode = mode }, if (method == .PUT)
             .{ .platform = try requiredString(object, "original_platform"), .name = try requiredString(object, "original_name") }
         else
             null);
@@ -389,7 +393,7 @@ fn errorResponse(allocator: std.mem.Allocator, err: anyerror) !Response {
         error.UnsupportedMediaType => .unsupported_media_type,
         error.ExpectationFailed => .expectation_failed,
         error.Timeout, error.WouldBlock => .request_timeout,
-        error.InvalidRequest, error.InvalidJson, error.InvalidFields, error.InvalidOrder, error.InvalidName, error.InvalidNodeName, error.InvalidPlatform, error.InvalidAliasCommand, error.InvalidProxyHost, error.InvalidProxyPort, error.InvalidProtocol => .bad_request,
+        error.InvalidRequest, error.InvalidJson, error.InvalidFields, error.InvalidOrder, error.InvalidName, error.InvalidNodeName, error.InvalidPlatform, error.InvalidAliasCommand, error.InvalidAliasMode, error.InvalidProxyHost, error.InvalidProxyPort, error.InvalidProtocol => .bad_request,
         else => .internal_server_error,
     };
     const message = switch (err) {
@@ -405,6 +409,7 @@ fn errorResponse(allocator: std.mem.Allocator, err: anyerror) !Response {
         error.InvalidName, error.InvalidNodeName => "名称不能为空、过长或包含无效空白字符",
         error.InvalidPlatform => "平台必须为 all、windows、linux 或 macos",
         error.InvalidAliasCommand => "请输入有效的别名命令（最多 16 KB）",
+        error.InvalidAliasMode => "执行模式必须为 proxy（使用代理）或 direct（无代理）",
         error.InvalidProxyHost => "请输入有效的代理主机地址，不要包含协议或路径",
         error.InvalidProxyPort => "代理端口必须为 1 到 65535 的整数",
         error.InvalidProtocol => "代理协议必须为 http、https、socks5 或 socks4",

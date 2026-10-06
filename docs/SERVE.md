@@ -36,7 +36,7 @@ PROXY_HOME="$PWD/proxy-config" proxy serve
 | 启用节点 | 整体替换当前代理配置，后续 CLI 命令使用该节点；顶部概览同步显示当前节点和地址 |
 | 编辑或重命名激活节点 | 同步更新当前代理参数和关联名称 |
 | 删除激活节点 | 删除保存的节点，保留当前代理参数并解除关联 |
-| 编辑别名 | 可同时修改名称、命令和平台；命令可写多行，每行一条按顺序执行；与其他别名冲突时拒绝保存 |
+| 编辑别名 | 可同时修改名称、命令、平台和执行模式（使用代理 / 无代理）；命令可写多行，每行一条按顺序执行；与其他别名冲突时拒绝保存 |
 | 拖动节点 | 松开手柄后保存顺序，网页与 `proxy node list` 的序号同步更新，当前激活节点保持原样 |
 | 拖动别名 | 保存展示顺序，支持不同平台交错排列，平台匹配优先级保持原样 |
 
@@ -87,11 +87,13 @@ X-Proxy-Request: 1
 | DELETE | `/api/nodes` | 删除节点，请求体 `{ "name": "dev" }` |
 | POST | `/api/nodes/activate` | 启用节点，请求体 `{ "name": "dev" }` |
 | POST | `/api/nodes/unlink` | 解除当前关联，请求体 `{}` |
-| GET | `/api/aliases` | 返回 `{platform, name, command}` 数组 |
-| POST | `/api/aliases` | 新建别名，包含 `platform`、`name`、`command` |
+| GET | `/api/aliases` | 返回 `{platform, name, command, mode}` 数组 |
+| POST | `/api/aliases` | 新建别名，包含 `platform`、`name`、`command`，可选 `mode` |
 | PUT | `/api/aliases` | 编辑别名，另需 `original_platform` 和 `original_name` |
 | PUT | `/api/aliases/order` | 保存完整别名顺序，请求体 `{ "aliases": [{ "platform": "all", "name": "gs" }] }` |
 | DELETE | `/api/aliases` | 删除别名，包含 `platform` 和 `name` |
+
+别名 `mode` 为 `proxy`（使用代理）或 `direct`（无代理）。新建时省略默认为 `proxy`，编辑时省略会保留原模式，包括重命名和移动平台；传入其他值返回 `400`。CLI 的 `proxy -n` / `proxy -p` 或显式节点可以临时覆盖模式，详情见 [使用指南](USAGE.md#无代理执行与别名模式)。更新可执行文件后，需重启正在运行的 `proxy serve` 才会加载新版网页及接口。
 
 代理字段中的 `host`、`port`、`protocol` 为必填字符串；`username`、`password` 为可选字符串，省略时清空。示例：
 

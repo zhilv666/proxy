@@ -22,6 +22,14 @@ pub fn putProxyEnv(env: *std.process.EnvMap, url: []const u8) !void {
     }
 }
 
+/// Remove inherited routing proxies only from the child environment. Call again
+/// after alias exports so a direct invocation stays direct across every line.
+pub fn clearProxyEnv(env: *std.process.EnvMap) void {
+    for ([_][]const u8{ "http_proxy", "https_proxy", "all_proxy", "ftp_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "FTP_PROXY" }) |name| {
+        env.remove(name);
+    }
+}
+
 pub const ConfigData = struct {
     host: []const u8,
     port: []const u8,

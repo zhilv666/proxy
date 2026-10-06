@@ -124,6 +124,24 @@ proxy alias remove all gs
 proxy alias remove windows cmd
 ```
 
+### 无代理执行与别名模式
+
+```bash
+proxy -n cx                         # 本次无代理（--no-proxy）
+proxy -p cx                         # 本次使用当前代理（--proxy）
+proxy alias mode all sm direct      # 保存已有别名的无代理模式
+proxy sm                            # 使用保存的模式执行快捷命令
+proxy alias mode all sm proxy       # 恢复使用代理
+proxy 2 sm                          # 本次使用指定节点，覆盖别名模式
+proxy alias list                    # 名称旁显示 [direct] 或 [proxy]
+```
+
+现有别名默认使用代理。临时参数或显式节点优先于别名设置；`-n` 与 `-p`、节点序号冲突时会报错。参数必须放在命令前，命令后的参数原样传给最后一行。`proxy -n -- <别名>` 可运行与内置命令或选项同名的别名。模式参数仅用于执行外部命令和别名，不用于 `config`、`alias`、`on` 等子命令。
+
+无代理模式在每条命令启动前清除 `http_proxy`、`https_proxy`、`all_proxy`、`ftp_proxy` 及其大写形式，包括别名通过 `export` 设置的值。证书等其他变量仍然有效；代理配置缺失或损坏也不会阻止无代理命令运行。它不修改父终端或系统代理，应用自身的代理配置及 VPN 不在控制范围内。
+
+在网页「命令别名」中编辑「执行模式」也能保存设置。重命名、移动平台或修改命令会保留模式；单次覆盖不写入配置。
+
 ## 场景示例
 
 ### 场景 1: 开发环境配置

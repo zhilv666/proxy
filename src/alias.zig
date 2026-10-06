@@ -3,6 +3,37 @@ const builtin = @import("builtin");
 const output = @import("output.zig");
 const Storage = @import("storage.zig");
 
+pub const Mode = enum {
+    proxy,
+    direct,
+
+    pub fn fromString(value: []const u8) ?Mode {
+        if (std.mem.eql(u8, value, "proxy")) return .proxy;
+        if (std.mem.eql(u8, value, "direct")) return .direct;
+        return null;
+    }
+};
+
+const StoredCommand = struct { command: []const u8, mode: Mode };
+
+fn decodeCommand(value: std.json.Value) !StoredCommand {
+    // Legacy strings retain their original proxied behavior.
+    if (value == .string) return .{ .command = value.string, .mode = .proxy };
+    if (value != .object) return error.CorruptAliases;
+    const command = value.object.get("command") orelse return error.CorruptAliases;
+    const mode = value.object.get("mode") orelse return error.CorruptAliases;
+    if (command != .string or mode != .string) return error.CorruptAliases;
+    return .{ .command = command.string, .mode = Mode.fromString(mode.string) orelse return error.CorruptAliases };
+}
+
+fn encodeCommand(allocator: std.mem.Allocator, command: []const u8, mode: Mode) !std.json.Value {
+    if (mode == .proxy) return .{ .string = command };
+    var object = std.json.ObjectMap.init(allocator);
+    try object.put("command", .{ .string = command });
+    try object.put("mode", .{ .string = @tagName(mode) });
+    return .{ .object = object };
+}
+
 pub const Platform = enum {
     windows,
     linux,
@@ -44,7 +75,7 @@ fn loadAliases(allocator: std.mem.Allocator) !std.json.Parsed(std.json.Value) {
         if (platform.value_ptr.* != .object) return error.CorruptAliases;
         var aliases = platform.value_ptr.object.iterator();
         while (aliases.next()) |entry| {
-            if (entry.value_ptr.* != .string) return error.CorruptAliases;
+            _ = try decodeCommand(entry.value_ptr.*);
         }
     }
     return parsed;
@@ -72,7 +103,8 @@ pub fn add(allocator: std.mem.Allocator, platform_str: []const u8, alias_name: [
     }
 
     // Add alias
-    const command_value = std.json.Value{ .string = command };
+    const mode = if (gop.value_ptr.object.get(alias_name)) |old| (try decodeCommand(old)).mode else .proxy;
+    const command_value = try encodeCommand(parsed.arena.allocator(), command, mode);
     try gop.value_ptr.object.put(alias_name, command_value);
 
     // Save
@@ -104,43 +136,66 @@ pub const Entry = struct {
     platform: []const u8,
     name: []const u8,
     command: []const u8,
+    mode: Mode = .proxy,
+};
+
+pub const Update = struct {
+    platform: []const u8,
+    name: []const u8,
+    command: []const u8,
+    // Older clients that omit mode preserve an existing alias's setting.
+    mode: ?Mode = null,
 };
 
 pub const Identity = struct { platform: []const u8, name: []const u8 };
 
 /// Create or edit an alias without silently overwriting a different entry.
 /// Renaming or moving platforms is persisted in a single file replacement.
-pub fn storeEntry(allocator: std.mem.Allocator, entry: Entry, original: ?Identity) !void {
+pub fn storeEntry(allocator: std.mem.Allocator, entry: Update, original: ?Identity) !void {
     _ = Platform.fromString(entry.platform) orelse return error.InvalidPlatform;
     var parsed = try loadAliases(allocator);
     defer parsed.deinit();
     var same_identity = false;
+    var mode: Mode = .proxy;
     if (original) |old| {
         const source = parsed.value.object.get(old.platform) orelse return error.AliasNotFound;
-        if (!source.object.contains(old.name)) return error.AliasNotFound;
+        const old_command = source.object.get(old.name) orelse return error.AliasNotFound;
+        mode = (try decodeCommand(old_command)).mode;
         same_identity = std.mem.eql(u8, old.platform, entry.platform) and std.mem.eql(u8, old.name, entry.name);
     }
     if (parsed.value.object.get(entry.platform)) |target| {
         if (target.object.contains(entry.name) and !same_identity) return error.NameExists;
     }
+    const command_value = try encodeCommand(parsed.arena.allocator(), entry.command, entry.mode orelse mode);
     const target = try parsed.value.object.getOrPut(entry.platform);
     if (!target.found_existing) {
         target.value_ptr.* = .{ .object = std.json.ObjectMap.init(parsed.arena.allocator()) };
     }
     if (original) |old| {
         if (std.mem.eql(u8, old.platform, entry.platform)) {
-            try Storage.replaceKey(parsed.arena.allocator(), &target.value_ptr.object, old.name, entry.name, .{ .string = entry.command });
+            try Storage.replaceKey(parsed.arena.allocator(), &target.value_ptr.object, old.name, entry.name, command_value);
         } else {
             _ = parsed.value.object.getPtr(old.platform).?.object.orderedRemove(old.name);
-            try target.value_ptr.object.put(entry.name, .{ .string = entry.command });
+            try target.value_ptr.object.put(entry.name, command_value);
         }
     } else {
-        try target.value_ptr.object.put(entry.name, .{ .string = entry.command });
+        try target.value_ptr.object.put(entry.name, command_value);
     }
     try saveAliases(parsed.value);
     if (original) |old| {
         if (!same_identity) try updateSavedOrder(allocator, old, .{ .platform = entry.platform, .name = entry.name });
     }
+}
+
+pub fn setMode(allocator: std.mem.Allocator, identity: Identity, mode: Mode) !void {
+    _ = Platform.fromString(identity.platform) orelse return error.InvalidPlatform;
+    var parsed = try loadAliases(allocator);
+    defer parsed.deinit();
+    const platform = parsed.value.object.getPtr(identity.platform) orelse return error.AliasNotFound;
+    const value = platform.object.getPtr(identity.name) orelse return error.AliasNotFound;
+    const command = (try decodeCommand(value.*)).command;
+    value.* = try encodeCommand(parsed.arena.allocator(), command, mode);
+    try saveAliases(parsed.value);
 }
 
 pub fn removeExisting(allocator: std.mem.Allocator, identity: Identity) !void {
@@ -269,17 +324,18 @@ pub fn getAll(allocator: std.mem.Allocator) ![]Entry {
         if (entry.value_ptr.* != .object) continue;
         var alias_it = entry.value_ptr.object.iterator();
         while (alias_it.next()) |alias_entry| {
-            if (alias_entry.value_ptr.* != .string) continue;
+            const stored = try decodeCommand(alias_entry.value_ptr.*);
             const platform = try allocator.dupe(u8, entry.key_ptr.*);
             errdefer allocator.free(platform);
             const name = try allocator.dupe(u8, alias_entry.key_ptr.*);
             errdefer allocator.free(name);
-            const command = try allocator.dupe(u8, alias_entry.value_ptr.string);
+            const command = try allocator.dupe(u8, stored.command);
             errdefer allocator.free(command);
             try result.append(allocator, .{
                 .platform = platform,
                 .name = name,
                 .command = command,
+                .mode = stored.mode,
             });
         }
     }
@@ -317,17 +373,19 @@ pub fn list(allocator: std.mem.Allocator) !void {
             var alias_it = aliases.iterator();
             while (alias_it.next()) |alias_entry| {
                 // 多行命令：首行跟在名字后，续行缩进对齐
-                var lines = std.mem.splitScalar(u8, alias_entry.value_ptr.string, '\n');
+                const stored = try decodeCommand(alias_entry.value_ptr.*);
+                const mode_label = if (stored.mode == .direct) " [direct]" else " [proxy]";
+                var lines = std.mem.splitScalar(u8, stored.command, '\n');
                 var first = true;
                 while (lines.next()) |raw| {
                     const line = std.mem.trim(u8, raw, " \t\r");
                     if (line.len == 0) continue;
                     if (first) {
-                        try writer.print("  {s} -> {s}\n", .{ alias_entry.key_ptr.*, line });
+                        try writer.print("  {s}{s} -> {s}\n", .{ alias_entry.key_ptr.*, mode_label, line });
                         first = false;
                     } else {
                         try writer.writeAll("  ");
-                        for (0..alias_entry.key_ptr.len + 4) |_| try writer.writeAll(" ");
+                        for (0..alias_entry.key_ptr.len + mode_label.len + 4) |_| try writer.writeAll(" ");
                         try writer.print("{s}\n", .{line});
                     }
                 }
@@ -340,6 +398,11 @@ pub fn list(allocator: std.mem.Allocator) !void {
 /// 解析后的命令序列：每个元素是一行命令的 argv，按顺序执行。
 pub const Commands = [][][]const u8;
 
+pub const Resolved = struct {
+    commands: Commands,
+    mode: Mode,
+};
+
 pub fn freeCommands(allocator: std.mem.Allocator, commands: Commands) void {
     for (commands) |argv| {
         for (argv) |arg| allocator.free(arg);
@@ -350,7 +413,7 @@ pub fn freeCommands(allocator: std.mem.Allocator, commands: Commands) void {
 
 /// 把首个参数按别名展开。命中时返回别名的每一行命令（追加参数拼到最后一行）；
 /// 未命中时返回单条原样命令。
-pub fn resolve(allocator: std.mem.Allocator, args: []const []const u8) !Commands {
+pub fn resolve(allocator: std.mem.Allocator, args: []const []const u8) !Resolved {
     if (args.len != 0) {
         const parsed = try loadAliases(allocator);
         defer parsed.deinit();
@@ -361,14 +424,16 @@ pub fn resolve(allocator: std.mem.Allocator, args: []const []const u8) !Commands
         // Try current platform first
         if (root.get(current_platform.toString())) |platform_value| {
             if (platform_value.object.get(args[0])) |command_value| {
-                return try expandAlias(allocator, command_value.string, args[1..]);
+                const stored = try decodeCommand(command_value);
+                return .{ .commands = try expandAlias(allocator, stored.command, args[1..]), .mode = stored.mode };
             }
         }
 
         // Try "all" platform
         if (root.get("all")) |platform_value| {
             if (platform_value.object.get(args[0])) |command_value| {
-                return try expandAlias(allocator, command_value.string, args[1..]);
+                const stored = try decodeCommand(command_value);
+                return .{ .commands = try expandAlias(allocator, stored.command, args[1..]), .mode = stored.mode };
             }
         }
     }
@@ -386,7 +451,7 @@ pub fn resolve(allocator: std.mem.Allocator, args: []const []const u8) !Commands
     }
     const commands = try allocator.alloc([][]const u8, 1);
     commands[0] = argv;
-    return commands;
+    return .{ .commands = commands, .mode = .proxy };
 }
 
 fn expandAlias(allocator: std.mem.Allocator, command: []const u8, extra_args: []const []const u8) !Commands {

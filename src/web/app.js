@@ -501,6 +501,9 @@ function renderAliases() {
     const platformCell = element('td');
     platformCell.dataset.label = '适用平台';
     platformCell.append(element('span', 'badge', platforms[alias.platform] || alias.platform));
+    const modeCell = element('td');
+    modeCell.dataset.label = '执行模式';
+    modeCell.append(element('span', alias.mode === 'direct' ? 'badge green' : 'badge', alias.mode === 'direct' ? '无代理' : '使用代理'));
     const actionsCell = element('td', 'actions-cell');
     const actions = element('div', 'row-actions');
     actions.append(rowButton('编辑', () => openEditor('alias', alias)), rowButton('删除', () => {
@@ -509,7 +512,7 @@ function renderAliases() {
       }
     }, true));
     actionsCell.append(actions);
-    row.append(platformCell, actionsCell);
+    row.append(platformCell, modeCell, actionsCell);
     rows.append(row);
   }
   const filtered = query || platform !== '*';
@@ -542,8 +545,8 @@ function openEditor(kind, original = null) {
   $('#editor-fields').replaceChildren($(`#${kind}-editor-template`).content.cloneNode(true));
   const isAlias = kind === 'alias';
   $('#editor-title').textContent = `${original ? '编辑' : '添加'}${isAlias ? '别名' : '节点'}`;
-  $('#editor-description').textContent = isAlias ? '设置名称、命令及适用平台，保存后即可在命令行使用。' : original?.name === state.config.node ? '这是当前使用的节点，保存后会同步更新当前代理。' : '保存独立的代理配置，需要时再启用。';
-  const values = isAlias ? original || { name: '', platform: 'all', command: '' } : { ...effective(original || defaults), name: original?.name || '' };
+  $('#editor-description').textContent = isAlias ? '设置常用命令，并选择执行时是否使用代理。' : original?.name === state.config.node ? '这是当前使用的节点，保存后会同步更新当前代理。' : '保存独立的代理配置，需要时再启用。';
+  const values = isAlias ? { name: '', platform: 'all', command: '', mode: 'proxy', ...original } : { ...effective(original || defaults), name: original?.name || '' };
   fillForm(editorForm, values);
   $('#editor-error').hidden = true;
   setControls();
